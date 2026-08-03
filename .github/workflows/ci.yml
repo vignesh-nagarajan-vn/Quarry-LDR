@@ -1,0 +1,27 @@
+# CPU-only CI: no network access inside tests (enforced by pytest-socket),
+# no API key, no GPU. This is the same selection `make test` runs locally.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Sync dependencies (no GPU extra)
+        run: uv sync --dev
+      - name: Format check
+        run: uv run ruff format --check .
+      - name: Lint
+        run: uv run ruff check .
+      - name: Type check
+        run: uv run mypy
+      - name: Tests (CPU, no network, no API key, coverage gate 80%)
+        run: uv run pytest

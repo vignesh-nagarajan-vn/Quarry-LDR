@@ -1,0 +1,73 @@
+# Quarry-LDR default configuration.
+#
+# This file is the documented override surface. Every key here also has an
+# identical default baked into the pydantic models in src/quarry_ldr/config.py,
+# so a missing or partial file never breaks a run. Precedence, lowest to
+# highest: model defaults < this file < --config file < QUARRY_* env vars.
+
+run:
+  max_iterations: 3        # search->triage->gap loops before forced synthesis
+  cost_cap_usd: 5.0        # hard API spend cap per run; the ledger raises when crossed
+  data_dir: data           # all runtime artifacts (cache, index, runs.db, reports)
+
+models:
+  # API models. Never hardcoded in business logic; the ledger prices these ids.
+  plan: claude-opus-5
+  gap: claude-sonnet-5
+  synthesize: claude-opus-5
+  extract_fallback: claude-haiku-4-5-20251001
+  # Local GPU models.
+  embedder: BAAI/bge-m3
+  reranker: BAAI/bge-reranker-v2-m3
+  triage_gguf_repo: Qwen/Qwen3-4B-Instruct-2507-GGUF
+  triage_gguf_file: Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+
+gpu:
+  vram_budget_mb: 6656     # 6.5 GB hard budget on an 8 GB card; lower on smaller cards
+  footprints_mb:           # declared footprints; corrected against measurement (bench_vram.py)
+    embedder: 1400
+    reranker: 1300
+    triage: 3600
+  embed_batch_size: 32
+  rerank_batch_size: 16
+
+search:
+  searxng_url: http://localhost:8888
+  results_per_query: 10
+  timeout_s: 15.0
+
+fetch:
+  user_agent: "QuarryLDR/0.1 (+https://github.com/vignesh-nagarajan-vn/Quarry-LDR)"
+  per_domain_rps: 1.0      # token-bucket rate limit per domain
+  max_concurrency: 8       # global concurrent fetches
+  timeout_s: 20.0
+  max_bytes: 5000000       # responses larger than this are truncated-rejected
+  cache_dir: data/cache/fetch
+
+chunk:
+  target_tokens: 512
+  overlap_tokens: 64
+  min_tokens: 48           # trailing fragments smaller than this merge backward
+
+dedup:
+  cosine_threshold: 0.92   # embedding cosine >= this marks a near-duplicate
+  simhash_hamming_max: 3   # 64-bit SimHash Hamming distance <= this marks a near-duplicate
+
+retrieve:
+  ann_top_k: 200           # ANN candidates per sub-question
+  rerank_top_k: 40         # kept after cross-encoder rerank
+
+triage:
+  context_tokens: 8192     # llama-server context; small keeps KV cache lean
+  port: 8555               # llama-server port (8080 collides too often)
+  max_retries: 2           # retry budget for malformed JSON from the local model
+  confidence_floor: 0.3    # verdicts below this confidence are dropped
+
+api:
+  max_retries: 5           # backoff retries for 429/529
+  cache_ttl: 1h            # prompt cache TTL for the synthesis corpus
+  batch_poll_s: 30         # Batch API poll interval
+
+report:
+  min_sections: 4
+  max_sections: 12

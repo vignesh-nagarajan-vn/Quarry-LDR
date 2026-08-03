@@ -1,0 +1,14 @@
+# Minimal SearXNG settings for Quarry-LDR.
+# The one non-default that matters: the json format must be enabled, otherwise
+# the API returns 403 for format=json and the search client fails with a
+# remediation message pointing here.
+use_default_settings: true
+
+server:
+  limiter: false
+  public_instance: false
+
+search:
+  formats:
+    - html
+    - json
