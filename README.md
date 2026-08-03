@@ -144,6 +144,7 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `triage.max_retries` | 2 | Retries for malformed JSON from the local model |
 | `triage.confidence_floor` | 0.3 | Verdicts below this are dropped |
 | `api.max_retries` | 5 | Backoff retries on 429/529 |
+| `api.retry_base_s` | 1.0 | Exponential backoff base with jitter |
 | `api.cache_ttl` | `1h` | Prompt cache TTL for the synthesis corpus |
 | `api.batch_poll_s` | 30.0 | Batch API poll interval |
 | `report.min_sections` / `max_sections` | 4 / 12 | Report shape bounds |

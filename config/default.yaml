@@ -66,6 +66,7 @@ triage:
 
 api:
   max_retries: 5           # backoff retries for 429/529
+  retry_base_s: 1.0        # exponential backoff base (with jitter)
   cache_ttl: 1h            # prompt cache TTL for the synthesis corpus
   batch_poll_s: 30         # Batch API poll interval
 

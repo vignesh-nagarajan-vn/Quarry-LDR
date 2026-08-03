@@ -87,6 +87,7 @@ class TriageSettings(BaseModel):
 
 class ApiSettings(BaseModel):
     max_retries: int = 5
+    retry_base_s: float = 1.0
     cache_ttl: str = "1h"
     batch_poll_s: float = 30.0
 
