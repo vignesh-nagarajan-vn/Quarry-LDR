@@ -29,6 +29,37 @@ class GapAnalysis(BaseModel):
     rationale: str = ""
 
 
+GAP_SYSTEM = (
+    "You audit research coverage. For each sub-question, judge whether the "
+    "collected claims satisfy its success criterion. Emit new, DIFFERENT web "
+    "search queries only for uncovered sub-questions (never repeat earlier "
+    "angles). Declare saturation when further searching is unlikely to add "
+    'evidence that changes the report. Reply with JSON only: {"saturated": '
+    'true/false, "assessments": [{"sub_question_id": "...", "covered": '
+    'true/false, "missing": "..."}], "new_queries": ["..."], "rationale": "..."}'
+)
+
+_MAX_CLAIMS_PER_SQ = 40
+
+
+def coverage_digest(plan: ResearchPlan, evidence: list[TriagedChunk]) -> str:
+    """Compact per-sub-question digest: criterion plus collected claims."""
+    claims_by_sq: dict[str, list[str]] = {}
+    for item in evidence:
+        claims_by_sq.setdefault(item.sub_question_id, []).append(item.verdict.claim)
+    lines: list[str] = []
+    for sub_question in plan.sub_questions:
+        claims = claims_by_sq.get(sub_question.id, [])[:_MAX_CLAIMS_PER_SQ]
+        lines.append(f"{sub_question.id}: {sub_question.question}")
+        lines.append(f"  success criterion: {sub_question.success_criterion}")
+        if claims:
+            lines.extend(f"  claim: {claim}" for claim in claims)
+        else:
+            lines.append("  (no evidence collected)")
+        lines.append("")
+    return "\n".join(lines)
+
+
 async def analyze_gaps(
     plan: ResearchPlan,
     evidence: list[TriagedChunk],
@@ -38,4 +69,17 @@ async def analyze_gaps(
 ) -> GapAnalysis:
     """One models.gap call. saturated=True or an empty new_queries list ends
     the loop; the orchestrator also enforces run.max_iterations regardless."""
-    raise NotImplementedError
+    prompt = (
+        f"Topic: {plan.topic}\n"
+        f"Completed search iterations so far: {iteration + 1}\n\n"
+        f"{coverage_digest(plan, evidence)}"
+    )
+    return await provider.complete_typed(
+        model=cfg.models.gap,
+        system=GAP_SYSTEM,
+        prompt=prompt,
+        schema=GapAnalysis,
+        max_tokens=2000,
+        stage="gap",
+        iteration=iteration,
+    )

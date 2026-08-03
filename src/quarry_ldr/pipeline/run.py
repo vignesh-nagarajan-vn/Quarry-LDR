@@ -8,7 +8,10 @@ the disk cache keyed by URL.
 GPU stages are batched by model, never interleaved: all embedding (queries
 included), then one swap to the reranker, then one swap to the local LLM.
 
-Single pass (M8); the gap-analysis loop lands in M9.
+The search->triage loop runs up to run.max_iterations passes; after each
+non-final pass, gap analysis (the cheap model) either emits new queries or
+declares saturation. Evidence accumulates across iterations, deduplicated by
+(sub_question, chunk).
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +39,7 @@ from quarry_ldr.ingest.fetch import Fetcher
 from quarry_ldr.ingest.search import SearxClient
 from quarry_ldr.ledger import Ledger
 from quarry_ldr.logging import get_logger, setup_logging
+from quarry_ldr.pipeline.gap import GapAnalysis, analyze_gaps
 from quarry_ldr.pipeline.plan import ResearchPlan, make_plan
 from quarry_ldr.pipeline.retrieve import rerank_candidates, retrieve_candidates
 from quarry_ldr.pipeline.synthesize import DraftReport, build_evidence_corpus, synthesize
@@ -213,103 +218,135 @@ class Orchestrator:
 
             iteration = 0
             queries = plan.all_queries()
+            evidence_by_key: dict[tuple[str, str], TriagedChunk] = {}
+            totals = {"n_queries": 0, "n_urls_fetched": 0, "n_docs_extracted": 0, "n_chunks": 0}
+            n_sources = 0
+            n_kept_total = 0
+            index_payload: dict[str, Any] = {"n_total": 0}
 
-            # ---- SEARCH
-            search_payload = await self._stage(
-                store,
-                run_id,
-                Stage.SEARCH,
-                iteration,
-                lambda: self._compute_search(searx, queries),
-            )
-            urls: list[str] = search_payload["urls"]
+            # ---- The search->triage loop, one pass per iteration (M9).
+            while True:
+                it = iteration
+                q = list(queries)
+                search_payload = await self._stage(
+                    store, run_id, Stage.SEARCH, it, partial(self._compute_search, searx, q)
+                )
+                urls: list[str] = search_payload["urls"]
 
-            # ---- FETCH
-            fetch_payload = await self._stage(
-                store,
-                run_id,
-                Stage.FETCH,
-                iteration,
-                lambda: self._compute_fetch(fetcher, urls),
-            )
-            ok_urls: list[str] = fetch_payload["ok_urls"]
+                fetch_payload = await self._stage(
+                    store, run_id, Stage.FETCH, it, partial(self._compute_fetch, fetcher, urls)
+                )
+                ok_urls: list[str] = fetch_payload["ok_urls"]
 
-            # ---- EXTRACT + CHUNK
-            extract_payload = await self._stage(
-                store,
-                run_id,
-                Stage.EXTRACT,
-                iteration,
-                lambda: self._compute_extract(fetcher, ok_urls),
-            )
-            chunk_payload = await self._stage(
-                store,
-                run_id,
-                Stage.CHUNK,
-                iteration,
-                lambda: self._compute_chunk(fetcher, extract_payload["extracted_urls"]),
-            )
-            chunks = [Chunk.model_validate(raw) for raw in chunk_payload["chunks"]]
+                extract_payload = await self._stage(
+                    store,
+                    run_id,
+                    Stage.EXTRACT,
+                    it,
+                    partial(self._compute_extract, fetcher, ok_urls),
+                )
+                chunk_payload = await self._stage(
+                    store,
+                    run_id,
+                    Stage.CHUNK,
+                    it,
+                    partial(self._compute_chunk, fetcher, extract_payload["extracted_urls"]),
+                )
+                chunks = [Chunk.model_validate(raw) for raw in chunk_payload["chunks"]]
 
-            # ---- EMBED (all texts, one residency)
-            embed_payload = await self._stage(
-                store,
-                run_id,
-                Stage.EMBED,
-                iteration,
-                lambda: self._compute_embed(embedder, chunks, run_id, iteration),
-            )
-            embeddings = np.load(embed_payload["path"])["embeddings"]
+                embed_payload = await self._stage(
+                    store,
+                    run_id,
+                    Stage.EMBED,
+                    it,
+                    partial(self._compute_embed, embedder, chunks, run_id, it),
+                )
+                embeddings = np.load(embed_payload["path"])["embeddings"]
 
-            # ---- DEDUP
-            dedup_payload = await self._stage(
-                store,
-                run_id,
-                Stage.DEDUP,
-                iteration,
-                lambda: self._compute_dedup(chunks, embeddings),
-            )
-            kept_indices: list[int] = dedup_payload["kept"]
-            kept_chunks = [chunks[i] for i in kept_indices]
-            kept_embeddings = embeddings[kept_indices] if len(kept_indices) else embeddings[:0]
+                dedup_payload = await self._stage(
+                    store,
+                    run_id,
+                    Stage.DEDUP,
+                    it,
+                    partial(self._compute_dedup, chunks, embeddings),
+                )
+                kept_indices: list[int] = dedup_payload["kept"]
+                kept_chunks = [chunks[i] for i in kept_indices]
+                kept_embeddings = embeddings[kept_indices] if len(kept_indices) else embeddings[:0]
 
-            # ---- INDEX
-            index_payload = await self._stage(
-                store,
-                run_id,
-                Stage.INDEX,
-                iteration,
-                lambda: self._compute_index(vstore, kept_chunks, kept_embeddings),
-            )
+                index_payload = await self._stage(
+                    store,
+                    run_id,
+                    Stage.INDEX,
+                    it,
+                    partial(self._compute_index, vstore, kept_chunks, kept_embeddings),
+                )
 
-            # ---- RETRIEVE (embedder resident), then RERANK (one swap)
-            retrieve_payload = await self._stage(
-                store,
-                run_id,
-                Stage.RETRIEVE,
-                iteration,
-                lambda: self._compute_retrieve(plan, vstore, embedder),
-            )
-            rerank_payload = await self._stage(
-                store,
-                run_id,
-                Stage.RERANK,
-                iteration,
-                lambda: self._compute_rerank(plan, retrieve_payload, vstore, reranker),
-            )
+                retrieve_payload = await self._stage(
+                    store,
+                    run_id,
+                    Stage.RETRIEVE,
+                    it,
+                    partial(self._compute_retrieve, plan, vstore, embedder),
+                )
+                rerank_payload = await self._stage(
+                    store,
+                    run_id,
+                    Stage.RERANK,
+                    it,
+                    partial(self._compute_rerank, plan, retrieve_payload, vstore, reranker),
+                )
 
-            # ---- TRIAGE (one swap to the local LLM)
-            if owns_llama:
-                llama_server = LlamaServer(self.cfg, arbiter, Path(self.cfg.run.models_dir))
-                local_llm = LocalLLM(llama_server.base_url)
-            triage_payload = await self._stage(
-                store,
-                run_id,
-                Stage.TRIAGE,
-                iteration,
-                lambda: self._compute_triage(plan, rerank_payload, vstore, llama_server, local_llm),
+                if owns_llama and llama_server is None:
+                    llama_server = LlamaServer(self.cfg, arbiter, Path(self.cfg.run.models_dir))
+                    local_llm = LocalLLM(llama_server.base_url)
+                triage_payload = await self._stage(
+                    store,
+                    run_id,
+                    Stage.TRIAGE,
+                    it,
+                    partial(
+                        self._compute_triage, plan, rerank_payload, vstore, llama_server, local_llm
+                    ),
+                )
+                for raw in triage_payload["evidence"]:
+                    item = TriagedChunk.model_validate(raw)
+                    evidence_by_key[(item.sub_question_id, item.chunk.chunk_id)] = item
+
+                totals["n_queries"] += len(q)
+                totals["n_urls_fetched"] += len(urls)
+                totals["n_docs_extracted"] += len(extract_payload["extracted_urls"])
+                totals["n_chunks"] += len(chunks)
+                n_sources += len(ok_urls)
+                n_kept_total += len(kept_chunks)
+                await store.set_run_iteration(run_id, iteration)
+
+                if iteration + 1 >= self.cfg.run.max_iterations:
+                    logger.info("loop_max_iterations", iterations=iteration + 1)
+                    break
+
+                gap_payload = await self._stage(
+                    store,
+                    run_id,
+                    Stage.GAP,
+                    it,
+                    partial(self._compute_gap, plan, list(evidence_by_key.values()), provider, it),
+                )
+                persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
+                gap = GapAnalysis.model_validate(gap_payload)
+                if gap.saturated or not gap.new_queries:
+                    logger.info(
+                        "loop_saturated", iterations=iteration + 1, rationale=gap.rationale[:200]
+                    )
+                    break
+                queries = gap.new_queries
+                iteration += 1
+                logger.info("loop_next_iteration", iteration=iteration, n_queries=len(queries))
+
+            evidence = sorted(
+                evidence_by_key.values(),
+                key=lambda t: (t.sub_question_id, -t.rerank_score, t.chunk.chunk_id),
             )
-            evidence = [TriagedChunk.model_validate(raw) for raw in triage_payload["evidence"]]
 
             # ---- SYNTHESIZE (section by section over the cached corpus)
             citations = CitationIndex()
@@ -341,11 +378,8 @@ class Orchestrator:
                     started_at,
                     iteration + 1,
                     {
-                        "n_queries": len(queries),
-                        "n_urls_fetched": len(urls),
-                        "n_docs_extracted": len(extract_payload["extracted_urls"]),
-                        "n_chunks": len(chunks),
-                        "n_chunks_after_dedup": len(kept_chunks),
+                        **totals,
+                        "n_chunks_after_dedup": n_kept_total,
                         "n_chunks_evidence": len(evidence),
                     },
                 ),
@@ -357,7 +391,7 @@ class Orchestrator:
                 report_path=render_payload["report_path"],
                 total_cost_usd=ledger.total_cost_usd,
                 iterations=iteration + 1,
-                n_sources=len(ok_urls),
+                n_sources=n_sources,
                 n_chunks_indexed=index_payload["n_total"],
                 n_chunks_evidence=len(evidence),
             )
@@ -513,6 +547,22 @@ class Orchestrator:
             evidence.extend(await triage_chunks(sub_question, scored, local_llm, self.cfg.triage))
         logger.info("triage_done_all", n_evidence=len(evidence))
         return {"evidence": [item.model_dump(mode="json") for item in evidence]}
+
+    async def _compute_gap(
+        self,
+        plan: ResearchPlan,
+        evidence: list[TriagedChunk],
+        provider: AnthropicProvider,
+        iteration: int,
+    ) -> dict[str, Any]:
+        gap = await analyze_gaps(plan, evidence, provider, self.cfg, iteration)
+        logger.info(
+            "gap_done",
+            saturated=gap.saturated,
+            n_new_queries=len(gap.new_queries),
+            n_uncovered=sum(1 for a in gap.assessments if not a.covered),
+        )
+        return gap.model_dump(mode="json")
 
     async def _compute_synthesize(
         self,

@@ -28,6 +28,7 @@ from quarry_ldr.ingest.chunk import Chunk
 from quarry_ldr.ingest.fetch import Fetcher
 from quarry_ldr.ingest.search import SearchResult, SearxClient
 from quarry_ldr.ledger import TokenUsage
+from quarry_ldr.pipeline.gap import GapAnalysis
 from quarry_ldr.pipeline.plan import _PlanPayload
 from quarry_ldr.pipeline.run import Orchestrator
 from quarry_ldr.pipeline.triage import TriageVerdict
@@ -101,16 +102,29 @@ class FakeLocalLLM:
 
 
 class FakeProvider:
-    """Plan + cached synthesis without an API key; records usage in a ledger
-    when given one so the report's cost table is exercised."""
+    """Plan, gap, and cached synthesis without an API key.
 
-    def __init__(self, fail_on_synthesize: bool = False) -> None:
+    ``gap_script`` drives the loop: analysis i returns gap_script[i] (the
+    last entry repeats). Default: immediately saturated (single pass).
+    """
+
+    def __init__(
+        self,
+        fail_on_synthesize: bool = False,
+        gap_script: list[GapAnalysis] | None = None,
+    ) -> None:
         self.fail_on_synthesize = fail_on_synthesize
+        self.gap_script = gap_script or [GapAnalysis(saturated=True, rationale="default")]
+        self.gap_calls = 0
         self.synth_calls = 0
         self.corpora: list[str] = []
 
     async def complete_typed(self, **kwargs: Any) -> Any:
         schema = kwargs["schema"]
+        if schema is GapAnalysis:
+            gap = self.gap_script[min(self.gap_calls, len(self.gap_script) - 1)]
+            self.gap_calls += 1
+            return gap
         assert schema is _PlanPayload
         return _PlanPayload.model_validate(
             {
@@ -218,10 +232,12 @@ async def test_single_pass_produces_cited_report(cfg: QuarryConfig) -> None:
             Stage.RETRIEVE,
             Stage.RERANK,
             Stage.TRIAGE,
+            Stage.GAP,
             Stage.SYNTHESIZE,
             Stage.RENDER,
         }
         assert all(record.status is StageStatus.COMPLETED for record in stages)
+    assert result.iterations == 1  # default gap script saturates immediately
 
 
 async def test_robots_disallowed_url_never_fetched(cfg: QuarryConfig) -> None:
@@ -264,6 +280,58 @@ async def test_crash_then_resume_replays_without_recompute(cfg: QuarryConfig) ->
             assert after[stage] == before[stage]
         # The failed stage was actually re-executed.
         assert after[Stage.SYNTHESIZE] != before[Stage.SYNTHESIZE]
+
+
+async def test_gap_loop_runs_second_iteration_then_saturates(cfg: QuarryConfig) -> None:
+    cfg.run.max_iterations = 3
+    provider = FakeProvider(
+        gap_script=[
+            GapAnalysis(
+                saturated=False,
+                new_queries=["vesterholm efficiency independent audit"],
+                rationale="coverage thin on efficiency",
+            ),
+            GapAnalysis(saturated=True, rationale="nothing new is appearing"),
+        ]
+    )
+    with respx.mock:
+        _mock_corpus_routes()
+        result = await _orchestrator(cfg, provider).research("loop case")
+
+    assert result.iterations == 2
+    assert provider.gap_calls == 2
+    assert provider.synth_calls == 10  # synthesis still runs exactly once
+    async with RunStore(cfg.run.data_dir / "runs.db") as store:
+        run_id = result.run_id
+        for iteration in (0, 1):
+            search = await store.get_stage(run_id, Stage.SEARCH, iteration)
+            triage = await store.get_stage(run_id, Stage.TRIAGE, iteration)
+            gap = await store.get_stage(run_id, Stage.GAP, iteration)
+            assert search is not None and search.status is StageStatus.COMPLETED
+            assert triage is not None and triage.status is StageStatus.COMPLETED
+            assert gap is not None and gap.status is StageStatus.COMPLETED
+        assert (await store.get_stage(run_id, Stage.SEARCH, 2)) is None
+        assert (await store.get_run(run_id)).iteration == 1
+
+
+async def test_max_iterations_bounds_unsaturated_loop(cfg: QuarryConfig) -> None:
+    cfg.run.max_iterations = 2
+    provider = FakeProvider(
+        gap_script=[
+            GapAnalysis(saturated=False, new_queries=["query round 2"], rationale="more"),
+            GapAnalysis(saturated=False, new_queries=["query round 3"], rationale="more"),
+        ]
+    )
+    with respx.mock:
+        _mock_corpus_routes()
+        result = await _orchestrator(cfg, provider).research("bounded loop case")
+
+    assert result.iterations == 2
+    # Gap runs after iteration 0 only: the final allowed iteration skips it.
+    assert provider.gap_calls == 1
+    async with RunStore(cfg.run.data_dir / "runs.db") as store:
+        assert (await store.get_stage(result.run_id, Stage.GAP, 1)) is None
+        assert (await store.get_stage(result.run_id, Stage.SEARCH, 2)) is None
 
 
 async def test_inspect_summarizes_stages(cfg: QuarryConfig) -> None:
