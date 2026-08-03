@@ -75,7 +75,7 @@ Any change touching an API call path must state the token and dollar impact in t
 4. If it calls the API: route through `AnthropicProvider`, pass `stage=` for the ledger.
 5. If it touches the GPU: register a `ModelSpec`, access only via `arbiter.acquire`.
 6. Add unit tests against fixtures; update `quarry inspect` expectations.
-7. Update README architecture diagram and this map if a new module appeared.
+7. Update the docs/Architecture.md diagram and this map if a new module appeared.
 
 ## Do not
 
