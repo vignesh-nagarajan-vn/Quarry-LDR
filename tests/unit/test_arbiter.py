@@ -181,6 +181,20 @@ async def test_overbudget_measurement_sheds_lru() -> None:
     assert arbiter.resident_footprint_mb() <= 6500
 
 
+async def test_implausibly_low_measurement_keeps_declared() -> None:
+    """A subprocess model (llama-server) allocates VRAM the parent's
+    mem_get_info cannot see on Windows WDDM: measured ~0. The declared
+    footprint must survive, or budget math would allow everything at once."""
+    arbiter, _backend, _ = make_arbiter(
+        budget_mb=6500,
+        footprints={"triage": 3600},
+        actual_sizes={"triage": 0},  # invisible allocation
+    )
+    async with arbiter.acquire("triage"):
+        pass
+    assert arbiter.resident_footprint_mb() == 3600
+
+
 async def test_reuse_does_not_reload() -> None:
     arbiter, _, events = make_arbiter()
     async with arbiter.acquire("embedder"):

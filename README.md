@@ -111,6 +111,7 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `run.max_iterations` | 3 | More loops find more evidence, cost one Sonnet gap call each plus search time |
 | `run.cost_cap_usd` | 5.0 | Hard API spend cap; the ledger raises mid-run when crossed |
 | `run.data_dir` | `data` | Where cache, index, run DB, logs, and reports live |
+| `run.models_dir` | `models` | Local weights and the llama.cpp server binary (`download_models.py`) |
 | `models.plan` | `claude-opus-5` | Planning model; cheaper models produce weaker decompositions |
 | `models.gap` | `claude-sonnet-5` | Runs every iteration, keep it cheap |
 | `models.synthesize` | `claude-opus-5` | The one place maximum capability pays for itself |

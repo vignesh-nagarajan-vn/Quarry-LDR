@@ -148,8 +148,23 @@ class VramArbiter:
         resident = _Resident(spec=spec, model=model)
         self._resident[spec.name] = resident
         used_after = self._used_mb()
+        measured: int | None = None
         if used_before is not None and used_after is not None:
-            measured = max(0, used_after - used_before)
+            delta = max(0, used_after - used_before)
+            if delta < spec.footprint_mb // 4:
+                # Implausibly low measurement: on Windows WDDM, mem_get_info
+                # does not see a child process's VRAM (llama-server measures
+                # as ~0 from the parent). Keep the declared footprint rather
+                # than zeroing the budget math.
+                self._log.warning(
+                    "footprint_measurement_implausible",
+                    model=spec.name,
+                    declared_mb=spec.footprint_mb,
+                    measured_mb=delta,
+                )
+            else:
+                measured = delta
+        if measured is not None:
             resident.measured_mb = measured
             if measured != spec.footprint_mb:
                 self._log.info(

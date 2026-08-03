@@ -24,6 +24,7 @@ class RunSettings(BaseModel):
     max_iterations: int = 3
     cost_cap_usd: float = 5.0
     data_dir: Path = Path("data")
+    models_dir: Path = Path("models")
 
 
 class ModelSettings(BaseModel):
@@ -33,7 +34,7 @@ class ModelSettings(BaseModel):
     extract_fallback: str = "claude-haiku-4-5-20251001"
     embedder: str = "BAAI/bge-m3"
     reranker: str = "BAAI/bge-reranker-v2-m3"
-    triage_gguf_repo: str = "Qwen/Qwen3-4B-Instruct-2507-GGUF"
+    triage_gguf_repo: str = "unsloth/Qwen3-4B-Instruct-2507-GGUF"
     triage_gguf_file: str = "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
 
 
