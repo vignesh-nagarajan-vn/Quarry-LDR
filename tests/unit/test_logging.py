@@ -12,8 +12,9 @@ from quarry_ldr.logging import get_logger, redact, setup_logging
 
 
 def test_redacts_anthropic_key() -> None:
-    assert "sk-ant-REDACTED" in redact("key is sk-ant-api03-abcdef1234567890")
-    assert "abcdef" not in redact("key is sk-ant-api03-abcdef1234567890")
+    fake = "sk-ant-api03-abcdef1234567890"  # pragma: allowlist secret (not-a-real-key)
+    assert "sk-ant-REDACTED" in redact(f"key is {fake}")
+    assert "abcdef" not in redact(f"key is {fake}")
 
 
 def test_redacts_header_style_secrets() -> None:
