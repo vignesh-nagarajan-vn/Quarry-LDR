@@ -1,0 +1,7 @@
+{
+  "error": {
+    "message": "Fixture rate limit.",
+    "type": "rate_limit_error"
+  },
+  "type": "error"
+}

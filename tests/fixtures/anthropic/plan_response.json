@@ -1,0 +1,20 @@
+{
+  "content": [
+    {
+      "text": "{\"sub_questions\": [{\"id\": \"sq01\", \"question\": \"Fixture sub-question 1 about the sand battery pilot?\", \"queries\": [\"vesterholm sand battery query 1a\", \"sand storage query 1b\"], \"success_criterion\": \"Fixture criterion 1 is satisfied by cited evidence.\"}, {\"id\": \"sq02\", \"question\": \"Fixture sub-question 2 about the sand battery pilot?\", \"queries\": [\"vesterholm sand battery query 2a\", \"sand storage query 2b\"], \"success_criterion\": \"Fixture criterion 2 is satisfied by cited evidence.\"}, {\"id\": \"sq03\", \"question\": \"Fixture sub-question 3 about the sand battery pilot?\", \"queries\": [\"vesterholm sand battery query 3a\", \"sand storage query 3b\"], \"success_criterion\": \"Fixture criterion 3 is satisfied by cited evidence.\"}, {\"id\": \"sq04\", \"question\": \"Fixture sub-question 4 about the sand battery pilot?\", \"queries\": [\"vesterholm sand battery query 4a\", \"sand storage query 4b\"], \"success_criterion\": \"Fixture criterion 4 is satisfied by cited evidence.\"}, {\"id\": \"sq05\", \"question\": \"Fixture sub-question 5 about the sand battery pilot?\", \"queries\": [\"vesterholm sand battery query 5a\", \"sand storage query 5b\"], \"success_criterion\": \"Fixture criterion 5 is satisfied by cited evidence.\"}, {\"id\": \"sq06\", \"question\": \"Fixture sub-question 6 about the sand battery pilot?\", \"queries\": [\"vesterholm sand battery query 6a\", \"sand storage query 6b\"], \"success_criterion\": \"Fixture criterion 6 is satisfied by cited evidence.\"}, {\"id\": \"sq07\", \"question\": \"Fixture sub-question 7 about the sand battery pilot?\", \"queries\": [\"vesterholm sand battery query 7a\", \"sand storage query 7b\"], \"success_criterion\": \"Fixture criterion 7 is satisfied by cited evidence.\"}, {\"id\": \"sq08\", \"question\": \"Fixture sub-question 8 about the sand battery pilot?\", \"queries\": [\"vesterholm sand battery query 8a\", \"sand storage query 8b\"], \"success_criterion\": \"Fixture criterion 8 is satisfied by cited evidence.\"}, {\"id\": \"sq09\", \"question\": \"Fixture sub-question 9 about the sand battery pilot?\", \"queries\": [\"vesterholm sand battery query 9a\", \"sand storage query 9b\"], \"success_criterion\": \"Fixture criterion 9 is satisfied by cited evidence.\"}]}",
+      "type": "text"
+    }
+  ],
+  "id": "msg_fixture_plan_0001",
+  "model": "claude-opus-5",
+  "role": "assistant",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "input_tokens": 812,
+    "output_tokens": 1290
+  }
+}

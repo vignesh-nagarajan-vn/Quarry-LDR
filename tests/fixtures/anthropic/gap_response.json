@@ -1,0 +1,20 @@
+{
+  "content": [
+    {
+      "text": "{\"saturated\": false, \"assessments\": [{\"sub_question_id\": \"sq01\", \"covered\": true, \"missing\": \"\"}, {\"sub_question_id\": \"sq02\", \"covered\": false, \"missing\": \"No independent efficiency measurement found.\"}], \"new_queries\": [\"vesterholm pilot independent efficiency audit\"], \"rationale\": \"Coverage is thin on sq02.\"}",
+      "type": "text"
+    }
+  ],
+  "id": "msg_fixture_gap_0001",
+  "model": "claude-sonnet-5",
+  "role": "assistant",
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "type": "message",
+  "usage": {
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "input_tokens": 9410,
+    "output_tokens": 402
+  }
+}

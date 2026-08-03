@@ -1,0 +1,326 @@
+{
+  "docs": [
+    {
+      "domain": "vesterholm-times.example",
+      "dup_of": null,
+      "file": "f01.html",
+      "kind": "normal",
+      "title": "Grid-scale sand heat store: costs and financing (f01)",
+      "url": "https://vesterholm-times.example/2024/f01-news"
+    },
+    {
+      "domain": "energy-blog-nordica.example",
+      "dup_of": null,
+      "file": "f02.html",
+      "kind": "normal",
+      "title": "Aurelia heat pilot: background (f02)",
+      "url": "https://energy-blog-nordica.example/2024/f02-blog"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": "f02.html",
+      "file": "f03.html",
+      "kind": "near_dup",
+      "title": "Aurelia heat pilot: background (f02) (syndicated)",
+      "url": "https://gridwatch-daily.example/wire/f03-syndicated"
+    },
+    {
+      "domain": "aurelia-institute.example",
+      "dup_of": null,
+      "file": "f04.html",
+      "kind": "normal",
+      "title": "Aurelia heat pilot: open questions (f04)",
+      "url": "https://aurelia-institute.example/2024/f04-org"
+    },
+    {
+      "domain": "energy-blog-nordica.example",
+      "dup_of": null,
+      "file": "f05.html",
+      "kind": "normal",
+      "title": "Vesterholm sand battery: background (f05)",
+      "url": "https://energy-blog-nordica.example/2024/f05-blog"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": null,
+      "file": "f06.html",
+      "kind": "normal",
+      "title": "Grid-scale sand heat store: background (f06)",
+      "url": "https://gridwatch-daily.example/2024/f06-wire"
+    },
+    {
+      "domain": "energy-blog-nordica.example",
+      "dup_of": null,
+      "file": "f07.html",
+      "kind": "normal",
+      "title": "Grid-scale sand heat store: what comes next (f07)",
+      "url": "https://energy-blog-nordica.example/2024/f07-blog"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": "f07.html",
+      "file": "f08.html",
+      "kind": "near_dup",
+      "title": "Grid-scale sand heat store: what comes next (f07) (syndicated)",
+      "url": "https://gridwatch-daily.example/wire/f08-syndicated"
+    },
+    {
+      "domain": "sandtech-vendor.example",
+      "dup_of": null,
+      "file": "f09.html",
+      "kind": "normal",
+      "title": "Vesterholm sand battery: community and siting (f09)",
+      "url": "https://sandtech-vendor.example/2024/f09-vendor"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": null,
+      "file": "f10.html",
+      "kind": "normal",
+      "title": "Aurelia heat pilot: costs and financing (f10)",
+      "url": "https://gridwatch-daily.example/2024/f10-wire"
+    },
+    {
+      "domain": "sandtech-vendor.example",
+      "dup_of": null,
+      "file": "f11.html",
+      "kind": "normal",
+      "title": "Sand storage pilot: open questions (f11)",
+      "url": "https://sandtech-vendor.example/2024/f11-vendor"
+    },
+    {
+      "domain": "thermal-storage-review.example",
+      "dup_of": null,
+      "file": "f12.html",
+      "kind": "normal",
+      "title": "Aurelia heat pilot: open questions (f12)",
+      "url": "https://thermal-storage-review.example/2024/f12-journal"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": "f12.html",
+      "file": "f13.html",
+      "kind": "near_dup",
+      "title": "Aurelia heat pilot: open questions (f12) (syndicated)",
+      "url": "https://gridwatch-daily.example/wire/f13-syndicated"
+    },
+    {
+      "domain": "aurelia-institute.example",
+      "dup_of": null,
+      "file": "f14.html",
+      "kind": "normal",
+      "title": "Aurelia heat pilot: how the pilot works (f14)",
+      "url": "https://aurelia-institute.example/2024/f14-org"
+    },
+    {
+      "domain": "heatbank-wiki.example",
+      "dup_of": null,
+      "file": "f15.html",
+      "kind": "normal",
+      "title": "Sand storage pilot: background (f15)",
+      "url": "https://heatbank-wiki.example/2024/f15-wiki"
+    },
+    {
+      "domain": "heatbank-wiki.example",
+      "dup_of": null,
+      "file": "f16.html",
+      "kind": "normal",
+      "title": "Vesterholm sand battery: background (f16)",
+      "url": "https://heatbank-wiki.example/2024/f16-wiki"
+    },
+    {
+      "domain": "polarforsk.example",
+      "dup_of": null,
+      "file": "f17.html",
+      "kind": "normal",
+      "title": "Sand storage pilot: grid integration (f17)",
+      "url": "https://polarforsk.example/2024/f17-research"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": "f17.html",
+      "file": "f18.html",
+      "kind": "near_dup",
+      "title": "Sand storage pilot: grid integration (f17) (syndicated)",
+      "url": "https://gridwatch-daily.example/wire/f18-syndicated"
+    },
+    {
+      "domain": "sandtech-vendor.example",
+      "dup_of": null,
+      "file": "f19.html",
+      "kind": "normal",
+      "title": "Vesterholm sand battery: background (f19)",
+      "url": "https://sandtech-vendor.example/2024/f19-vendor"
+    },
+    {
+      "domain": "polarforsk.example",
+      "dup_of": null,
+      "file": "f20.html",
+      "kind": "normal",
+      "title": "Grid-scale sand heat store: how the pilot works (f20)",
+      "url": "https://polarforsk.example/2024/f20-research"
+    },
+    {
+      "domain": "polarforsk.example",
+      "dup_of": null,
+      "file": "f21.html",
+      "kind": "normal",
+      "title": "Aurelia heat pilot: grid integration (f21)",
+      "url": "https://polarforsk.example/2024/f21-research"
+    },
+    {
+      "domain": "energy-blog-nordica.example",
+      "dup_of": null,
+      "file": "f22.html",
+      "kind": "normal",
+      "title": "Vesterholm sand battery: background (f22)",
+      "url": "https://energy-blog-nordica.example/2024/f22-blog"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": "f22.html",
+      "file": "f23.html",
+      "kind": "near_dup",
+      "title": "Vesterholm sand battery: background (f22) (syndicated)",
+      "url": "https://gridwatch-daily.example/wire/f23-syndicated"
+    },
+    {
+      "domain": "polarforsk.example",
+      "dup_of": null,
+      "file": "f24.html",
+      "kind": "normal",
+      "title": "Sand storage pilot: how the pilot works (f24)",
+      "url": "https://polarforsk.example/2024/f24-research"
+    },
+    {
+      "domain": "energy-blog-nordica.example",
+      "dup_of": null,
+      "file": "f25.html",
+      "kind": "normal",
+      "title": "Grid-scale sand heat store: background (f25)",
+      "url": "https://energy-blog-nordica.example/2024/f25-blog"
+    },
+    {
+      "domain": "sandtech-vendor.example",
+      "dup_of": null,
+      "file": "f26.html",
+      "kind": "normal",
+      "title": "Aurelia heat pilot: how the pilot works (f26)",
+      "url": "https://sandtech-vendor.example/2024/f26-vendor"
+    },
+    {
+      "domain": "energy-blog-nordica.example",
+      "dup_of": null,
+      "file": "f27.html",
+      "kind": "normal",
+      "title": "Vesterholm sand battery: design choices (f27)",
+      "url": "https://energy-blog-nordica.example/2024/f27-blog"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": "f27.html",
+      "file": "f28.html",
+      "kind": "near_dup",
+      "title": "Vesterholm sand battery: design choices (f27) (syndicated)",
+      "url": "https://gridwatch-daily.example/wire/f28-syndicated"
+    },
+    {
+      "domain": "aurelia-institute.example",
+      "dup_of": null,
+      "file": "f29.html",
+      "kind": "normal",
+      "title": "Sand storage pilot: what comes next (f29)",
+      "url": "https://aurelia-institute.example/2024/f29-org"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": null,
+      "file": "f30.html",
+      "kind": "normal",
+      "title": "Grid-scale sand heat store: what comes next (f30)",
+      "url": "https://gridwatch-daily.example/2024/f30-wire"
+    },
+    {
+      "domain": "aurelia-institute.example",
+      "dup_of": null,
+      "file": "f31.html",
+      "kind": "normal",
+      "title": "Aurelia heat pilot: costs and financing (f31)",
+      "url": "https://aurelia-institute.example/2024/f31-org"
+    },
+    {
+      "domain": "polarforsk.example",
+      "dup_of": null,
+      "file": "f32.html",
+      "kind": "normal",
+      "title": "Sand storage pilot: community and siting (f32)",
+      "url": "https://polarforsk.example/2024/f32-research"
+    },
+    {
+      "domain": "vesterholm-times.example",
+      "dup_of": null,
+      "file": "f33.html",
+      "kind": "normal",
+      "title": "Sand storage pilot: community and siting (f33)",
+      "url": "https://vesterholm-times.example/2024/f33-news"
+    },
+    {
+      "domain": "vesterholm-times.example",
+      "dup_of": null,
+      "file": "f34.html",
+      "kind": "normal",
+      "title": "Grid-scale sand heat store: community and siting (f34)",
+      "url": "https://vesterholm-times.example/2024/f34-news"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": null,
+      "file": "f35.html",
+      "kind": "normal",
+      "title": "Sand storage pilot: community and siting (f35)",
+      "url": "https://gridwatch-daily.example/2024/f35-wire"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": null,
+      "file": "f36.html",
+      "kind": "normal",
+      "title": "Aurelia heat pilot: efficiency and losses (f36)",
+      "url": "https://gridwatch-daily.example/2024/f36-wire"
+    },
+    {
+      "domain": "thermal-storage-review.example",
+      "dup_of": null,
+      "file": "f37.html",
+      "kind": "paywall",
+      "title": "Sand battery economics, part 2",
+      "url": "https://thermal-storage-review.example/2024/f37-economics-part-2"
+    },
+    {
+      "domain": "aurelia-institute.example",
+      "dup_of": null,
+      "file": "f38.html",
+      "kind": "js_only",
+      "title": "Live dashboard",
+      "url": "https://aurelia-institute.example/dashboard"
+    },
+    {
+      "domain": "polarforsk.example",
+      "dup_of": null,
+      "file": "f39.html",
+      "kind": "bad_encoding",
+      "title": "Temperature notes",
+      "url": "https://polarforsk.example/notes/f39-temperature"
+    },
+    {
+      "domain": "gridwatch-daily.example",
+      "dup_of": null,
+      "file": "f40.html",
+      "kind": "robots_disallowed",
+      "title": "Sand storage pilot: background (f40)",
+      "url": "https://gridwatch-daily.example/private/f40-internal-briefing"
+    }
+  ],
+  "marker": "SYNTHETIC-FIXTURE-CORPUS: generated by scripts/make_fixtures.py, seed 1207",
+  "seed": 1207
+}
