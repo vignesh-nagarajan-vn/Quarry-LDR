@@ -5,13 +5,11 @@ through 2026-08-31, after which it becomes $3/$15. Costs are always computed
 from the ``usage`` block the API returned; Claude 4.7+ tokenizers produce
 roughly 30 percent more tokens for the same text than older ones, so
 character-count estimates are banned by design.
-
-Implemented in M1.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from pydantic import BaseModel, Field
 
@@ -89,12 +87,25 @@ class LedgerSummary(BaseModel):
 
 def price_for(model: str, on: date) -> ModelPrice:
     """Resolve the price row effective for ``model`` on date ``on``."""
-    raise NotImplementedError
+    try:
+        rows = PRICING[model]
+    except KeyError:
+        known = ", ".join(sorted(PRICING))
+        raise UnknownModelError(f"no pricing for model {model!r}; known: {known}") from None
+    effective = [price for effective_from, price in rows if effective_from <= on]
+    # Dates before the first entry fall back to the earliest known price.
+    return effective[-1] if effective else rows[0][1]
 
 
 def compute_cost(usage: TokenUsage, price: ModelPrice, batch: bool = False) -> float:
     """Cost in USD from a usage block. Batch halves every component."""
-    raise NotImplementedError
+    cost = (
+        usage.input_tokens * price.input
+        + usage.output_tokens * price.output
+        + usage.cache_creation_input_tokens * price.cache_write_1h
+        + usage.cache_read_input_tokens * price.cache_read
+    ) / 1_000_000
+    return cost * BATCH_DISCOUNT if batch else cost
 
 
 class Ledger:
@@ -119,7 +130,22 @@ class Ledger:
         Raises :class:`CostCapExceeded` after appending, so the entry that
         crossed the cap is still accounted for.
         """
-        raise NotImplementedError
+        effective_date = on if on is not None else datetime.now(UTC).date()
+        price = price_for(model, effective_date)
+        entry = LedgerEntry(
+            timestamp=datetime.now(UTC),
+            model=model,
+            stage=stage,
+            iteration=iteration,
+            batch=batch,
+            usage=usage,
+            cost_usd=compute_cost(usage, price, batch=batch),
+            context=context,
+        )
+        self._entries.append(entry)
+        if self.cost_cap_usd is not None and self.total_cost_usd > self.cost_cap_usd:
+            raise CostCapExceeded(self.total_cost_usd, self.cost_cap_usd)
+        return entry
 
     @property
     def entries(self) -> list[LedgerEntry]:
@@ -127,20 +153,65 @@ class Ledger:
 
     @property
     def total_cost_usd(self) -> float:
-        raise NotImplementedError
+        return sum(entry.cost_usd for entry in self._entries)
 
     def summary(self) -> LedgerSummary:
-        raise NotImplementedError
+        by_model: dict[str, float] = {}
+        by_stage: dict[str, float] = {}
+        by_iteration: dict[int, float] = {}
+        for entry in self._entries:
+            by_model[entry.model] = by_model.get(entry.model, 0.0) + entry.cost_usd
+            by_stage[entry.stage] = by_stage.get(entry.stage, 0.0) + entry.cost_usd
+            by_iteration[entry.iteration] = by_iteration.get(entry.iteration, 0.0) + entry.cost_usd
+        return LedgerSummary(
+            total_cost_usd=self.total_cost_usd,
+            total_input_tokens=sum(e.usage.input_tokens for e in self._entries),
+            total_output_tokens=sum(e.usage.output_tokens for e in self._entries),
+            total_cache_write_tokens=sum(
+                e.usage.cache_creation_input_tokens for e in self._entries
+            ),
+            total_cache_read_tokens=sum(e.usage.cache_read_input_tokens for e in self._entries),
+            by_model=by_model,
+            by_stage=by_stage,
+            by_iteration=by_iteration,
+        )
 
     def to_markdown(self) -> str:
         """Render the cost ledger table appended to every report."""
-        raise NotImplementedError
+        lines = [
+            "## Cost ledger",
+            "",
+            "| Stage | Iter | Model | Batch | Input | Output | Cache write | Cache read | Cost |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+        for e in self._entries:
+            lines.append(
+                f"| {e.stage} | {e.iteration} | {e.model} | {'yes' if e.batch else 'no'} "
+                f"| {e.usage.input_tokens} | {e.usage.output_tokens} "
+                f"| {e.usage.cache_creation_input_tokens} | {e.usage.cache_read_input_tokens} "
+                f"| ${e.cost_usd:.4f} |"
+            )
+        summary = self.summary()
+        lines += [
+            "",
+            f"**Total: ${summary.total_cost_usd:.4f}**"
+            + (f" (cap ${self.cost_cap_usd:.2f})" if self.cost_cap_usd is not None else ""),
+        ]
+        if len(summary.by_iteration) > 1:
+            per_iter = ", ".join(
+                f"iteration {i}: ${cost:.4f}" for i, cost in sorted(summary.by_iteration.items())
+            )
+            lines.append(f"\nPer iteration: {per_iter}")
+        return "\n".join(lines)
 
     def dump(self) -> list[dict[str, object]]:
         """JSON-safe entries for persistence."""
-        raise NotImplementedError
+        return [entry.model_dump(mode="json") for entry in self._entries]
 
     @classmethod
     def load(cls, entries: list[dict[str, object]], cost_cap_usd: float | None = None) -> Ledger:
-        """Rehydrate from persisted entries (used by resume)."""
-        raise NotImplementedError
+        """Rehydrate from persisted entries (used by resume). The cap is not
+        re-enforced during load; the next record() call enforces it."""
+        ledger = cls(cost_cap_usd=cost_cap_usd)
+        ledger._entries = [LedgerEntry.model_validate(entry) for entry in entries]
+        return ledger
