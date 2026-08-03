@@ -32,6 +32,7 @@ Quarry-LDR turns a research topic into a cited markdown report. A local GPU comp
 5. Pipeline stages are batched by model: embed everything, then rerank, then triage. Never interleave GPU models.
 6. No secrets, personal paths, or real scraped content in the repo or its history. Fixtures are synthetic.
 7. The default test selection runs on CPU with no network and no API key, always.
+8. Measured-vs-declared VRAM corrections reject a measurement under 25 percent of the declared footprint as implausible and keep the declared value (Windows WDDM hides child-process VRAM from `mem_get_info`).
 
 ## Commands
 
@@ -43,6 +44,7 @@ Quarry-LDR turns a research topic into a cited markdown report. A local GPU comp
 | `make fmt` | ruff format + autofix |
 | `make lint` | ruff check + mypy |
 | `make searxng` | Start SearXNG in Docker (remediation message if Docker absent) |
+| `make searxng-down` | Stop the SearXNG container |
 | `make smoke` | Real end-to-end run, $0.50 cap, prints ledger |
 | `make audit` | Pre-public go/no-go: history secrets, paths, fixtures, em dashes |
 | `make fixtures` | Regenerate the synthetic corpus deterministically |

@@ -20,6 +20,7 @@ Every deviation from the build spec and every delegated design decision, with a 
 - **`bootstrap.ps1` added alongside `bootstrap.sh`**: the dev machine is native Windows; spec listed only the sh script.
 - **`quarry searxng up|down|status` CLI subcommands** instead of an extra script: the spec's script list stays as specified, and the Docker preflight lives with the rest of the CLI UX.
 - **T20 (flake8-print) ruff rule** enforces "no print outside the CLI layer" mechanically.
+- **ASYNC230/240 ignored in ruff**: small local file reads/writes in async functions are deliberate; heavy IO (LanceDB, model loads) already routes through `asyncio.to_thread`, so the rule has nothing left to catch and only adds noise.
 
 ## Dependencies (each new dep gets a line here)
 

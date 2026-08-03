@@ -25,6 +25,7 @@ cd Quarry-LDR
 make bootstrap
 cp .env.example .env          # paste your ANTHROPIC_API_KEY
 make searxng                  # starts local search in Docker
+uv run python scripts/download_models.py   # fetches llama-server and the triage GGUF
 uv run quarry verify          # preflight check with remediation hints
 uv run quarry research "your topic"
 ```
@@ -120,7 +121,7 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `models.reranker` | `BAAI/bge-reranker-v2-m3` | The quality lever; changing this changes evidence quality most |
 | `models.triage_gguf_repo` / `_file` | Qwen3 4B Q4_K_M | Local triage model; must fit VRAM entirely |
 | `gpu.vram_budget_mb` | 6656 | Hard arbiter budget; set to ~80 percent of your card's VRAM |
-| `gpu.footprints_mb.*` | measured | Declared per-model VRAM; corrected by `scripts/bench_vram.py` |
+| `gpu.footprints_mb.*` | embedder 1400, reranker 1300, triage 3600 | Declared per-model VRAM; corrected by `scripts/bench_vram.py` |
 | `gpu.embed_batch_size` | 32 | Bigger is faster until it OOMs |
 | `gpu.rerank_batch_size` | 16 | Same trade as embed batch |
 | `search.searxng_url` | `http://localhost:8888` | Point at any SearXNG with JSON enabled |
@@ -165,8 +166,11 @@ Two constraints shape the design:
 | `verify_gpu.py` fails on capability | Wheels lack kernels for your GPU. For `sm_120` (Blackwell) install the cu128 index wheels: `uv sync --extra gpu` uses it already; check your driver supports CUDA 12.8. |
 | SearXNG returns HTML instead of JSON | The `json` format is not enabled. Confirm `docker/searxng/settings.yml` lists `json` under `search.formats`, then `quarry searxng down && quarry searxng up`. |
 | llama-server fails to start, port in use | Another process holds port 8555. Change `triage.port` or free the port. |
+| llama-server fails to start with a missing CUDA DLL on Windows | The llama.cpp Windows release ships the CUDA runtime as a separate `cudart-*.zip`, not inside the server build. `scripts/download_models.py` downloads and extracts both the `llama-server` build and the matching cudart bundle; if extraction was interrupted, delete `models/llama.cpp/` and rerun it. |
 | `SchemaMismatchError` from LanceDB | The index was written by an older schema. Delete the index directory under `data/`; it is a rebuildable cache. |
 | CUDA OOM under the arbiter | Declared footprints are lower than reality on your card. Run `scripts/bench_vram.py` and update `gpu.footprints_mb`, or lower batch sizes. |
+| Measured VRAM looks like 0 MB right after llama-server loads | Windows WDDM does not expose a child process's VRAM to `mem_get_info`, so the parent sees no allocation. The arbiter treats any measurement under 25 percent of the declared footprint as implausible and keeps the declared value instead of zeroing the budget. |
+| `download_models.py` can't find an official Qwen3-4B-Instruct-2507 GGUF | Qwen publishes no official GGUF for the 2507 instruct variant. The default `models.triage_gguf_repo` points at `unsloth/Qwen3-4B-Instruct-2507-GGUF`, a conversion that carries the expected filename and chat template. |
 | API 429 / 529 | The client retries with backoff up to `api.max_retries`. Persistent 429 means your account rate limits; lower concurrency or wait. |
 | `make searxng` says Docker is missing | Install Docker Desktop (Windows/macOS) or Docker Engine (Linux) and start it. Everything except live search works without it. |
 
