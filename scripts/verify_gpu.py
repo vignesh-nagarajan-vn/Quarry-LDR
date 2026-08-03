@@ -3,8 +3,8 @@
 Checks, in order:
   1. torch imports and CUDA is available;
   2. compute capability is at least (8, 0) so modern wheels have kernels
-     (this repo was developed on an RTX 4060, sm_89; Blackwell sm_120 works
-     with the pinned CUDA 12.8 wheel index);
+     (the design target is a Blackwell RTX 5060 Mobile, sm_120, served by the
+     pinned CUDA 12.8 wheel index; development ran on an RTX 4060, sm_89);
   3. a real matmul executes on device and comes back finite, because
      torch.cuda.is_available() alone does not prove kernels exist;
   4. free VRAM is reported and compared against the configured arbiter budget.

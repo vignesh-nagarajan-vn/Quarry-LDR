@@ -62,14 +62,15 @@ All GPU residency is owned by a VRAM arbiter with a hard budget (default 6.5 GB)
 
 The arbiter measures real VRAM before and after every load and corrects declared footprints against reality, with one guard: a measurement under 25 percent of the declared footprint is treated as implausible and the declared value stands. This matters on Windows, where WDDM hides a child process's VRAM (llama-server) from `mem_get_info`.
 
-## Hardware notes
+## Hardware design target
 
-Developed and tuned on a laptop RTX 4060 (8 GB, compute capability 8.9). Any CUDA GPU with capability 8.0 or newer works; adjust `gpu.vram_budget_mb` to about 80 percent of your VRAM. For Blackwell cards (RTX 50 series, `sm_120`) you need CUDA 12.8 or newer wheels; the project pins the cu128 PyTorch index, and `scripts/verify_gpu.py` proves a real matmul executes on device.
+Quarry-LDR is designed for a laptop NVIDIA RTX 5060 Mobile: 8 GB GDDR7, Blackwell architecture, compute capability `sm_120`. Three constraints from that card shape the whole system:
 
-Two constraints shape the design:
+- **Blackwell needs CUDA 12.8 or newer kernels.** Older PyTorch and llama.cpp builds do not ship `sm_120` kernels; the project pins the cu128 PyTorch wheel index. `scripts/verify_gpu.py` proves a real matmul executes on device.
+- **8 GB VRAM total, roughly 7 GB usable** after the OS and display take their cut, hence the 6.5 GB arbiter budget. Partial offload is catastrophic, not gradual: a model that does not fit entirely in VRAM decodes an order of magnitude slower over PCIe, so the arbiter enforces full residency or refuses to load.
+- **Laptops throttle.** Sustained multi-hour load runs well below burst benchmarks; actual tokens per second are logged so you can see it, and `scripts/bench_vram.py` measures footprints and throughput on your card.
 
-- Partial offload is catastrophic, not gradual. A model that does not fit entirely in VRAM decodes an order of magnitude slower over PCIe. The arbiter enforces full residency or refuses to load.
-- Laptops throttle. Sustained multi-hour load runs well below burst benchmarks; actual tokens per second are logged so you can see it.
+Any CUDA GPU with compute capability 8.0 or newer also works: `verify_gpu.py` checks capability at least (8, 0), and you should set `gpu.vram_budget_mb` to about 80 percent of your card's VRAM. The measured numbers in `DECISIONS.md` (nDCG regression, llama-server startup and verdict latency) were taken on an RTX 4060 (`sm_89`) development machine.
 
 ## Configuration reference
 

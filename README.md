@@ -53,9 +53,9 @@ A realistic substantive report (3 loop iterations, ~300 sources) costs $1.00 to 
 
 A 14-stage checkpointed pipeline: one Opus call plans sub-questions, SearXNG and a polite fetcher gather sources for free, the local GPU embeds, deduplicates, reranks, and triages them down to dense evidence, a Sonnet gap check decides whether to loop, and Opus writes the report section by section over one prompt-cached corpus. A VRAM arbiter with a hard 6.5 GB budget owns all GPU residency so three models share one 8 GB card safely. The full diagram, the arbiter rules, and every configuration key are in [docs/Architecture.md](docs/Architecture.md).
 
-## Hardware notes
+## Hardware target
 
-Developed and tuned on a laptop RTX 4060 (8 GB, compute capability 8.9). Any CUDA GPU with capability 8.0 or newer works; set `gpu.vram_budget_mb` to about 80 percent of your card's VRAM. For Blackwell cards (RTX 50 series, `sm_120`) you need CUDA 12.8 or newer wheels; the project pins the cu128 PyTorch index. Constraints and details are in [docs/Architecture.md](docs/Architecture.md).
+Designed for a laptop NVIDIA RTX 5060 Mobile: 8 GB GDDR7, Blackwell architecture, `sm_120`. Blackwell needs CUDA 12.8 or newer kernels, so the project pins the cu128 PyTorch wheel index and `scripts/verify_gpu.py` proves a real matmul executes on device. Any CUDA GPU with compute capability 8.0 or newer also works; set `gpu.vram_budget_mb` to about 80 percent of your card's VRAM. Constraints and details are in [docs/Architecture.md](docs/Architecture.md).
 
 ## Repo map
 
