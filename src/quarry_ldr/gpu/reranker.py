@@ -8,12 +8,14 @@ Implemented in M5.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Sequence
+from typing import Any
 
 from pydantic import BaseModel
 
 from quarry_ldr.config import QuarryConfig
-from quarry_ldr.gpu.arbiter import VramArbiter
+from quarry_ldr.gpu.arbiter import ModelSpec, VramArbiter
 from quarry_ldr.ingest.chunk import Chunk
 
 
@@ -34,7 +36,37 @@ class Reranker:
         self.arbiter = arbiter
         self.model_id = cfg.models.reranker
         self.batch_size = cfg.gpu.rerank_batch_size
+        arbiter.register(
+            ModelSpec(
+                name=self.ARBITER_NAME,
+                footprint_mb=cfg.gpu.footprints_mb.get("reranker", 1300),
+                loader=self._load_model,
+                unloader=self._unload_model,
+            )
+        )
+
+    def _load_model(self) -> Any:
+        """Lazily import sentence-transformers so CPU-only environments never
+        pay the import cost unless a rerank actually happens on a GPU box."""
+        from sentence_transformers import CrossEncoder
+
+        return CrossEncoder(self.model_id, device="cuda")
+
+    def _unload_model(self, model: Any) -> None:
+        del model
 
     async def rerank(self, query: str, chunks: Sequence[Chunk], top_k: int) -> list[ScoredChunk]:
         """Score every chunk against the query, return the top_k best, sorted."""
-        raise NotImplementedError
+        if not chunks:
+            return []
+        async with self.arbiter.acquire(self.ARBITER_NAME) as model:
+            pairs = [(query, chunk.text) for chunk in chunks]
+            scores = await asyncio.to_thread(model.predict, pairs, batch_size=self.batch_size)
+        scored = [
+            ScoredChunk(chunk=chunk, score=float(score))
+            for chunk, score in zip(chunks, scores, strict=True)
+        ]
+        # list.sort with reverse=True stays stable: equal-score chunks keep
+        # their original input order rather than being reversed.
+        scored.sort(key=lambda sc: sc.score, reverse=True)
+        return scored[:top_k]

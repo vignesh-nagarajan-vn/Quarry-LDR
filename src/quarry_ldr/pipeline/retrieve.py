@@ -5,6 +5,8 @@ Implemented in M5 (depends on store, embedder, reranker).
 
 from __future__ import annotations
 
+import asyncio
+
 from quarry_ldr.config import RetrieveSettings
 from quarry_ldr.gpu.embedder import Embedder
 from quarry_ldr.gpu.reranker import Reranker, ScoredChunk
@@ -19,7 +21,9 @@ async def retrieve_candidates(
     settings: RetrieveSettings,
 ) -> list[ScoredChunk]:
     """ANN retrieval of ann_top_k candidates for one sub-question (score = -distance)."""
-    raise NotImplementedError
+    vec = await embedder.embed_query(sub_question.question)
+    rows = await asyncio.to_thread(store.search, vec, settings.ann_top_k)
+    return [ScoredChunk(chunk=row.chunk, score=-row.distance) for row in rows]
 
 
 async def rerank_candidates(
@@ -29,4 +33,8 @@ async def rerank_candidates(
     settings: RetrieveSettings,
 ) -> list[ScoredChunk]:
     """Cross-encoder rerank down to rerank_top_k."""
-    raise NotImplementedError
+    if not candidates:
+        return []
+    return await reranker.rerank(
+        sub_question.question, [c.chunk for c in candidates], settings.rerank_top_k
+    )
