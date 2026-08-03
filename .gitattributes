@@ -4,3 +4,7 @@
 Makefile text eol=lf
 *.yml text eol=lf
 *.yaml text eol=lf
+
+# Fixture bytes are hash-compared against the generator's output in tests;
+# no eol conversion may ever touch them (one file is deliberately invalid utf-8).
+tests/fixtures/** -text
