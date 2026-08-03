@@ -8,7 +8,7 @@ Implemented in M8.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -40,6 +40,35 @@ class ResearchPlan(BaseModel):
         return [q for sq in self.sub_questions for q in sq.queries]
 
 
+class _PlanPayload(BaseModel):
+    """The JSON shape the planning model returns; topic is attached locally."""
+
+    sub_questions: list[SubQuestion] = Field(min_length=8, max_length=15)
+
+
+PLAN_SYSTEM = (
+    "You are a research planner. Decompose the topic into 8 to 15 orthogonal "
+    "sub-questions that together cover it. Each sub-question gets 2 to 4 seed "
+    "web search queries (short, keyword-style, varied phrasing) and one "
+    "success criterion describing what cited evidence would satisfy it. "
+    'Reply with JSON only: {"sub_questions": [{"id": "sq01", "question": "...", '
+    '"queries": ["...", "..."], "success_criterion": "..."}]}. '
+    "Ids are sq01, sq02, ... in order."
+)
+
+
 async def make_plan(topic: str, provider: AnthropicProvider, cfg: QuarryConfig) -> ResearchPlan:
     """One models.plan call returning a validated ResearchPlan."""
-    raise NotImplementedError
+    payload = await provider.complete_typed(
+        model=cfg.models.plan,
+        system=PLAN_SYSTEM,
+        prompt=f"Research topic: {topic}",
+        schema=_PlanPayload,
+        max_tokens=4096,
+        stage="plan",
+    )
+    return ResearchPlan(
+        topic=topic,
+        sub_questions=payload.sub_questions,
+        created_at=datetime.now(UTC),
+    )

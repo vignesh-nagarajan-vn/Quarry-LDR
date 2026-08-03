@@ -132,6 +132,28 @@ class VectorStore:
             results.append(RetrievedChunk(chunk=chunk, distance=float(row["_distance"])))
         return results
 
+    def get_many(self, chunk_ids: Sequence[str]) -> dict[str, Chunk]:
+        """Fetch chunks by id in one filtered scan (no vector search)."""
+        if not chunk_ids:
+            return {}
+        table = self._table_or_raise()
+        quoted = ", ".join("'" + chunk_id.replace("'", "''") + "'" for chunk_id in chunk_ids)
+        rows = table.search().where(f"chunk_id IN ({quoted})").limit(len(chunk_ids)).to_list()
+        result: dict[str, Chunk] = {}
+        for row in rows:
+            result[row["chunk_id"]] = Chunk(
+                chunk_id=row["chunk_id"],
+                url=row["url"],
+                doc_title=row["doc_title"],
+                heading_path=json.loads(row["heading_path"]),
+                text=row["text"],
+                token_count=row["token_count"],
+                position=row["position"],
+                start_char=row["start_char"],
+                end_char=row["end_char"],
+            )
+        return result
+
     def count(self) -> int:
         return self._table_or_raise().count_rows()
 

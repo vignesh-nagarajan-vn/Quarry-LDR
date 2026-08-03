@@ -1,10 +1,13 @@
 """Markdown report assembly: sections, references, cost ledger, run manifest.
 
-Implemented in M10 (basic form lands with M8's single pass).
+render_report validates every citation marker before returning: a broken
+citation raises CitationError, and callers treat that as a failed run, not a
+cosmetic issue.
 """
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -42,9 +45,39 @@ def render_report(
 ) -> str:
     """Assemble the full markdown document. Validates every citation marker
     resolves (CitationError otherwise) before returning."""
-    raise NotImplementedError
+    body_parts: list[str] = [f"# {draft.topic}", ""]
+    for section in draft.sections:
+        body_parts.append(f"## {section.title}")
+        body_parts.append("")
+        body_parts.append(section.markdown)
+        body_parts.append("")
+    body = "\n".join(body_parts)
+    citations.validate_markdown(body)
+
+    manifest_block = json.dumps(
+        manifest.model_dump(mode="json", exclude={"config_snapshot"}),
+        indent=2,
+        sort_keys=True,
+    )
+    parts = [
+        body,
+        citations.references_markdown(),
+        "",
+        ledger.to_markdown(),
+        "",
+        "## Run manifest",
+        "",
+        "```json",
+        manifest_block,
+        "```",
+        "",
+    ]
+    return "\n".join(parts)
 
 
 def write_report(markdown: str, out_dir: Path, run_id: str) -> Path:
     """Write report markdown to out_dir/report-<run_id>.md and return the path."""
-    raise NotImplementedError
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"report-{run_id}.md"
+    path.write_text(markdown, encoding="utf-8", newline="\n")
+    return path

@@ -118,7 +118,9 @@ src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "ASYNC", "T20"]
-ignore = ["E501"]
+# ASYNC230/240 (sync file IO in async defs): small local reads/writes are
+# deliberate; heavy IO (LanceDB, model loads) goes through asyncio.to_thread.
+ignore = ["E501", "ASYNC230", "ASYNC240"]
 
 [tool.ruff.lint.per-file-ignores]
 # The CLI layer and standalone scripts are the only places print/console output is allowed.

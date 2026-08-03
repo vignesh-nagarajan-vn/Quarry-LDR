@@ -40,7 +40,8 @@ Every deviation from the build spec and every delegated design decision, with a 
 ## Pipeline parameters (from spec unless noted; tuned values get measured justification)
 
 - Chunking 512 target / 64 overlap tokens; fragments under 48 tokens merge backward.
-- Token counting is pluggable (`TokenCounter` protocol): runtime uses the embedder's HF tokenizer, tests use a ~4 chars/token heuristic so the suite needs no downloads.
+- Token counting is pluggable (`TokenCounter` protocol); both tests and the runtime pipeline currently use the ~4 chars/token heuristic. An HF-tokenizer counter would change only chunk granularity, not correctness, and would drag tokenizer downloads into the chunk stage; revisit if measured chunk sizes drift badly from 512 tokens.
+- **Resume is replay, not special-case code**: every stage checkpoint stores the payload the next stage needs; re-driving a run returns persisted payloads for completed stages instantly (identical timestamps prove no recomputation) and executes only unfinished stages. Embeddings persist as npz per iteration since LanceDB only holds post-dedup rows.
 - Dedup: 64-bit SimHash over 5-word shingles, Hamming <= 3, OR embedding cosine >= 0.92. Thresholds validated against the fixture near-duplicate set in M5.
 - Fetch politeness: 1 request/second/domain token bucket, 8 global concurrent fetches, 20s timeout, 5 MB response cap, identifying user agent.
 - Embedder default `BAAI/bge-m3` (dense, dim 1024); `Qwen/Qwen3-Embedding-0.6B` stays a config swap.
