@@ -75,8 +75,14 @@ def research(
     from quarry_ldr.pipeline.run import Orchestrator
 
     result = asyncio.run(Orchestrator(cfg).research(topic))
+    console.print(f"[green]run:[/green] {result.run_id}")
     console.print(f"[green]report:[/green] {result.report_path}")
     console.print(f"[green]cost:[/green] ${result.total_cost_usd:.4f}")
+    console.print(
+        f"[green]iterations:[/green] {result.iterations}  "
+        f"[green]sources:[/green] {result.n_sources}  "
+        f"[green]evidence:[/green] {result.n_chunks_evidence}"
+    )
 
 
 @app.command()
@@ -156,6 +162,31 @@ def verify(config: ConfigOpt = None) -> None:
         if (Path("docker") / "compose.yaml").is_file()
         else "run from the repo root",
     )
+
+    settings_path = Path("docker") / "searxng" / "settings.yml"
+    if settings_path.is_file():
+        import yaml
+
+        settings = yaml.safe_load(settings_path.read_text(encoding="utf-8")) or {}
+        formats = (settings.get("search") or {}).get("formats") or []
+        json_enabled = "json" in formats
+        check(
+            "searxng json format",
+            json_enabled,
+            f"'json' enabled under search.formats in {settings_path}"
+            if json_enabled
+            else f"add 'json' under search.formats in {settings_path}",
+        )
+
+    from quarry_ldr.gpu.local_llm import LlamaServerError, find_gguf, find_server_binary
+
+    try:
+        find_server_binary(cfg.run.models_dir)
+        find_gguf(cfg.run.models_dir, cfg.models.triage_gguf_file)
+        check("local models", True, f"found under {cfg.run.models_dir}")
+    except LlamaServerError as exc:
+        check("local models", False, exc.remediation or str(exc))
+
     try:
         import torch
 
