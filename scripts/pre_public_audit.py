@@ -51,7 +51,13 @@ WINDOWS_USER_PATH = re.compile(r"[A-Za-z]:\\Users\\(?!nrvig-free-placeholder)")
 UNIX_HOME_PATH = re.compile(r"/home/[A-Za-z0-9_.-]+/")
 
 EM_DASH = "\u2014"
-EM_DASH_FILES = ("README.md", "CLAUDE.md", "COMMIT.md")
+EM_DASH_FILES = (
+    "README.md",
+    "CLAUDE.md",
+    "COMMIT.md",
+    "docs/Architecture.md",
+    "docs/Troubleshooting.md",
+)
 
 # Directories that are never git-tracked source: caches, venvs, model/data
 # blobs, and this dev machine's local lancedb scratch dirs. Approximating
