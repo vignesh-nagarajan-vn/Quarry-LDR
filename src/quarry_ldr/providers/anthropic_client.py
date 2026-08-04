@@ -155,15 +155,17 @@ class AnthropicProvider:
         prompt: str,
         system: str | None = None,
         max_tokens: int = 4096,
-        temperature: float = 0.0,
         stage: str = "",
         iteration: int = 0,
     ) -> CompletionResult:
-        """Plain completion with retries; records usage in the ledger."""
+        """Plain completion with retries; records usage in the ledger.
+
+        No sampling parameters: the Claude 5 models reject temperature,
+        top_p, and top_k with a 400, so behavior is steered by prompting.
+        """
         message = await self._create(
             model=model,
             max_tokens=max_tokens,
-            temperature=temperature,
             system=system if system is not None else NOT_GIVEN,
             messages=[{"role": "user", "content": prompt}],
         )
