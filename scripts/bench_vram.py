@@ -74,7 +74,7 @@ async def _bench_embedder(cfg: QuarryConfig, arbiter: VramArbiter) -> BenchResul
         )
         elapsed = time.perf_counter() - start
 
-    declared_mb = cfg.gpu.footprints_mb.get("embedder", 1400)
+    declared_mb = cfg.gpu.footprints_mb.get("embedder", 2186)
     measured_mb = max(0, used_after_load - used_before)
     throughput = f"{_WORKLOAD_N / elapsed:.1f} texts/s" if elapsed > 0 else "n/a"
     return BenchResult("embedder", declared_mb, measured_mb, throughput)
@@ -91,7 +91,7 @@ async def _bench_reranker(cfg: QuarryConfig, arbiter: VramArbiter) -> BenchResul
         await asyncio.to_thread(model.predict, pairs, batch_size=reranker.batch_size)
         elapsed = time.perf_counter() - start
 
-    declared_mb = cfg.gpu.footprints_mb.get("reranker", 1300)
+    declared_mb = cfg.gpu.footprints_mb.get("reranker", 2128)
     measured_mb = max(0, used_after_load - used_before)
     throughput = f"{_WORKLOAD_N / elapsed:.1f} pairs/s" if elapsed > 0 else "n/a"
     return BenchResult("reranker", declared_mb, measured_mb, throughput)

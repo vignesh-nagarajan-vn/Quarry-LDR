@@ -134,7 +134,7 @@ def test_init_registers_configured_footprint(cfg: QuarryConfig, arbiter: VramArb
 def test_init_falls_back_to_default_footprint(cfg: QuarryConfig, arbiter: VramArbiter) -> None:
     cfg.gpu.footprints_mb.pop("reranker", None)
     Reranker(cfg, arbiter)
-    assert arbiter._specs["reranker"].footprint_mb == 1300
+    assert arbiter._specs["reranker"].footprint_mb == 2128
 
 
 async def test_rerank_returns_scored_chunk_instances(

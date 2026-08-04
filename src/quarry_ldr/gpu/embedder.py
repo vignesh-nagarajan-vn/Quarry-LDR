@@ -41,7 +41,7 @@ class Embedder:
         arbiter.register(
             ModelSpec(
                 name=self.ARBITER_NAME,
-                footprint_mb=cfg.gpu.footprints_mb.get("embedder", 1400),
+                footprint_mb=cfg.gpu.footprints_mb.get("embedder", 2186),
                 loader=self._load_model,
                 unloader=self._unload_model,
             )

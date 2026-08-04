@@ -26,9 +26,9 @@ models:
 gpu:
   vram_budget_mb: 6656     # 6.5 GB hard budget on an 8 GB card; lower on smaller cards
   footprints_mb:           # declared footprints; corrected against measurement (bench_vram.py)
-    embedder: 1400
-    reranker: 1300
-    triage: 3600
+    embedder: 2186         # measured on the RTX 5060 Mobile 8 GB deployment card (M10)
+    reranker: 2128         # measured on the same card and date
+    triage: 3600           # WDDM hides llama-server child VRAM; declared value stands
   embed_batch_size: 32
   rerank_batch_size: 16
 

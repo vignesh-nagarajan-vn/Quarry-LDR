@@ -146,11 +146,11 @@ def test_registration_uses_configured_footprint(cfg: QuarryConfig) -> None:
 
 def test_registration_falls_back_to_default_footprint(cfg: QuarryConfig) -> None:
     cfg.gpu.footprints_mb.pop("embedder", None)
-    too_small = VramArbiter(budget_mb=1399)
+    too_small = VramArbiter(budget_mb=2185)
     with pytest.raises(BudgetExceededError):
         Embedder(cfg, too_small)
-    just_right = VramArbiter(budget_mb=1400)
-    Embedder(cfg, just_right)  # does not raise: default footprint is 1400 MB
+    just_right = VramArbiter(budget_mb=2186)
+    Embedder(cfg, just_right)  # does not raise: default footprint is 2186 MB
 
 
 def test_dim_selection_known_and_unknown_models(cfg: QuarryConfig) -> None:

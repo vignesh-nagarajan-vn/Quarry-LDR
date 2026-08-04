@@ -39,7 +39,7 @@ class Reranker:
         arbiter.register(
             ModelSpec(
                 name=self.ARBITER_NAME,
-                footprint_mb=cfg.gpu.footprints_mb.get("reranker", 1300),
+                footprint_mb=cfg.gpu.footprints_mb.get("reranker", 2128),
                 loader=self._load_model,
                 unloader=self._unload_model,
             )

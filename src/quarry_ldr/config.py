@@ -41,7 +41,7 @@ class ModelSettings(BaseModel):
 class GpuSettings(BaseModel):
     vram_budget_mb: int = 6656
     footprints_mb: dict[str, int] = Field(
-        default_factory=lambda: {"embedder": 1400, "reranker": 1300, "triage": 3600}
+        default_factory=lambda: {"embedder": 2186, "reranker": 2128, "triage": 3600}
     )
     embed_batch_size: int = 32
     rerank_batch_size: int = 16
