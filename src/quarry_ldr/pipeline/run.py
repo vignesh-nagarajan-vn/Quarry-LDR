@@ -195,7 +195,9 @@ class Orchestrator:
         reranker: Reranker = self._ov.get("reranker") or Reranker(self.cfg, arbiter)
         fetcher: Fetcher = self._ov.get("fetcher") or Fetcher(self.cfg.fetch)
         searx: SearxClient = self._ov.get("searx") or SearxClient(
-            self.cfg.search.searxng_url, self.cfg.search.timeout_s
+            self.cfg.search.searxng_url,
+            self.cfg.search.timeout_s,
+            max_concurrency=self.cfg.search.max_concurrency,
         )
         vstore: VectorStore = self._ov.get("vstore") or VectorStore(
             self._data_dir() / "index" / run_id, embedder.dim

@@ -49,6 +49,7 @@ class GpuSettings(BaseModel):
 
 class SearchSettings(BaseModel):
     searxng_url: str = "http://localhost:8888"
+    max_concurrency: int = 4
     results_per_query: int = 10
     timeout_s: float = 15.0
 

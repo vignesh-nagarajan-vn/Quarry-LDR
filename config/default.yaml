@@ -36,6 +36,7 @@ search:
   searxng_url: http://localhost:8888
   results_per_query: 10
   timeout_s: 15.0
+  max_concurrency: 4       # concurrent queries against SearXNG; unbounded bursts get upstream engines suspended
 
 fetch:
   user_agent: "QuarryLDR/0.1 (+https://github.com/vignesh-nagarajan-vn/Quarry-LDR)"

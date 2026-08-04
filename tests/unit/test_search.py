@@ -5,6 +5,8 @@ All HTTP is mocked with respx; no network is required or permitted.
 
 from __future__ import annotations
 
+import asyncio
+
 import httpx
 import pytest
 import respx
@@ -274,6 +276,24 @@ async def test_search_many_merges_and_dedups_across_queries() -> None:
     assert results[1].title == "Shared"
     assert results[0].query == "q1"
     assert results[2].query == "q2"
+
+
+async def test_search_many_bounds_concurrency() -> None:
+    client = SearxClient(base_url=BASE_URL, max_concurrency=3)
+    active = 0
+    peak = 0
+
+    async def fake_search(query: str, num_results: int = 10) -> list:
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0)  # yield so other bounded tasks can interleave
+        active -= 1
+        return []
+
+    client.search = fake_search  # type: ignore[method-assign]
+    await client.search_many([f"q{i}" for i in range(12)], num_results=5)
+    assert peak <= 3
 
 
 async def test_health_true_on_success() -> None:

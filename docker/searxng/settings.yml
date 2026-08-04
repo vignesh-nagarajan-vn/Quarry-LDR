@@ -8,6 +8,11 @@ server:
   limiter: false
   public_instance: false
 
+# Throttled engines answer slowly before they answer not at all; the default
+# 3 s per-engine timeout turns throttling into empty result sets.
+outgoing:
+  request_timeout: 6.0
+
 search:
   formats:
     - html

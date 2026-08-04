@@ -51,10 +51,12 @@ class SearxClient:
         base_url: str,
         timeout_s: float = 15.0,
         client: httpx.AsyncClient | None = None,
+        max_concurrency: int = 4,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout_s = timeout_s
         self._client = client
+        self.max_concurrency = max_concurrency
 
     def _client_ctx(self) -> AbstractAsyncContextManager[httpx.AsyncClient]:
         """Context manager yielding a usable client.
@@ -136,10 +138,19 @@ class SearxClient:
         return results
 
     async def search_many(self, queries: list[str], num_results: int = 10) -> list[SearchResult]:
-        """Run several queries concurrently; merged and URL-deduplicated."""
-        per_query_results = await asyncio.gather(
-            *(self.search(query, num_results=num_results) for query in queries)
-        )
+        """Run several queries with bounded concurrency; merged, URL-deduplicated.
+
+        The bound keeps a burst of plan queries from fanning out to every
+        upstream engine at once: an unbounded 60-query gather got this IP
+        CAPTCHA-suspended by multiple engines in live runs.
+        """
+        semaphore = asyncio.Semaphore(self.max_concurrency)
+
+        async def bounded_search(query: str) -> list[SearchResult]:
+            async with semaphore:
+                return await self.search(query, num_results=num_results)
+
+        per_query_results = await asyncio.gather(*(bounded_search(query) for query in queries))
         seen: set[str] = set()
         merged: list[SearchResult] = []
         for query_results in per_query_results:
