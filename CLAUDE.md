@@ -2,6 +2,25 @@
 
 Operating instructions for Claude Code sessions in this repo. Terse on purpose.
 
+## Temporary: deployment session state (2026-08-04, remove when Phase 2 completes)
+
+Live deployment validation on the RTX 5060 laptop is mid Phase 2; the README
+deployment checklist tracks the remaining items. Done so far: Blackwell proven
+(gpu tests pass, footprints measured and committed), Docker plus WSL working
+after a reboot (Docker AI feature disabled in settings-store.json: this Windows
+build corrupts AF_UNIX sockets until rebooted), SearXNG serving JSON on :8888,
+audit fixed to GO, clean-clone verify rehearsal green. The first live API call
+found a real bug: the claude 5 models reject the temperature parameter with a
+400 (fixed in the providers commit). Smoke attempt 1 died on that 400; attempt
+2 died at the search stage (cold SearXNG plus an upstream engine rate limit
+pushed latency past the 15 s client timeout); attempt 3 was interrupted at the
+user's request before completing. Next session: rerun scripts/smoke.py with
+QUARRY_SEARCH__TIMEOUT_S=30 (engines answer in under 1 s once warm), then
+continue the README checklist from the smoke item. Watch for: Opus 5 thinks by
+default inside each call's max_tokens budget (plan 4096, sections 3000), so
+check stop_reason for max_tokens if typed JSON parsing fails. The full research
+run needs a topic and per-run go-ahead; the CI check needs gh auth login.
+
 ## Purpose
 
 Quarry-LDR turns a research topic into a cited markdown report. A local GPU compresses ~750K tokens of scraped web text into ~60K tokens of deduplicated, reranked evidence; the Anthropic API does planning, gap analysis, and synthesis on that small payload. Target cost: under $1.50 per substantive report.

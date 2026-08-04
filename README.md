@@ -17,7 +17,7 @@ Manual steps:
 
 Then prompt Claude Code to:
 
-- [ ] Start SearXNG (`quarry searxng up`) and confirm the JSON API answers on localhost:8888
+- [x] Start SearXNG (`quarry searxng up`) and confirm the JSON API answers on localhost:8888
 - [ ] Run `scripts/smoke.py` (hard $0.50 cap): the first live end-to-end report
 - [ ] Run one full research run on a topic you give it, then reconcile this README's pricing section against the measured ledger
 - [ ] Interrupt a run, then exercise `quarry resume <run_id>` and `quarry inspect <run_id>`
