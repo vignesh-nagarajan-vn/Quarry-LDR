@@ -79,7 +79,9 @@ async def analyze_gaps(
         system=GAP_SYSTEM,
         prompt=prompt,
         schema=GapAnalysis,
-        max_tokens=2000,
+        # claude-sonnet-5 thinks inside this budget; 2000 truncated a live
+        # gap call at exactly max_tokens and paid a retry.
+        max_tokens=4096,
         stage="gap",
         iteration=iteration,
     )
