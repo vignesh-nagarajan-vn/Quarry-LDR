@@ -122,10 +122,14 @@ class CheckResult:
 
 
 def check_no_secrets_in_tree(repo_root: Path) -> CheckResult:
-    """Tracked text files must carry no Anthropic-shaped key."""
+    """Tracked text files must carry no Anthropic-shaped key. `.env` is
+    exempt alongside `.env.example`: on a configured machine it legitimately
+    holds the real key, and check (g) fails the audit on its own unless
+    `.env` is gitignored, so the overall verdict stays safe. Matched secret
+    content is never echoed; only its location is reported."""
     violations: list[str] = []
     for path in _iter_scannable_files(repo_root):
-        if path.name == ".env.example":
+        if path.name in (".env", ".env.example"):
             continue
         text = _read_text(path)
         if text is None:
@@ -137,7 +141,7 @@ def check_no_secrets_in_tree(repo_root: Path) -> CheckResult:
             for match in SECRET_PATTERN.finditer(line):
                 if match.group(0) == REDACTED_LITERAL:
                     continue
-                violations.append(f"{rel}:{lineno}: {match.group(0)}")
+                violations.append(f"{rel}:{lineno}: anthropic-key-shaped string (redacted)")
     passed = not violations
     detail = "no secret-shaped strings in tracked files" if passed else "; ".join(violations)
     return CheckResult("no secrets in working tree", passed, detail)
@@ -170,7 +174,9 @@ def check_no_secrets_in_history(history_text: str) -> CheckResult:
             and match.group(0) != REDACTED_LITERAL
             and match.group(0) not in HISTORY_FIXTURE_LITERALS
         ):
-            violations.append(f"line {lineno} ({current_file}): {match.group(0)}")
+            violations.append(
+                f"line {lineno} ({current_file}): anthropic-key-shaped string (redacted)"
+            )
             continue
         for marker in PRIVATE_KEY_MARKERS:
             if marker in line:

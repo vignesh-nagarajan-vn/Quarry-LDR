@@ -43,6 +43,19 @@ def test_no_secrets_in_tree_flags_planted_key(tmp_path: Path) -> None:
     result = audit.check_no_secrets_in_tree(tmp_path)
     assert result.passed is False
     assert "leak.py" in result.detail
+    # location only, never the matched secret itself
+    assert "sk-ant-abcdef1234567890" not in result.detail  # pragma: allowlist secret
+
+
+def test_no_secrets_in_tree_allows_real_shaped_key_in_env(tmp_path: Path) -> None:
+    # .env legitimately holds the real key on a configured machine; the
+    # separate gitignore check keeps the overall verdict safe.
+    (tmp_path / ".env").write_text(
+        "ANTHROPIC_API_KEY=sk-ant-abcdef1234567890\n",  # pragma: allowlist secret (planted)
+        encoding="utf-8",
+    )
+    result = audit.check_no_secrets_in_tree(tmp_path)
+    assert result.passed is True
 
 
 def test_no_secrets_in_tree_passes_clean_tree(tmp_path: Path) -> None:
@@ -118,6 +131,8 @@ def test_no_secrets_in_history_flags_leaked_key() -> None:
     result = audit.check_no_secrets_in_history(history)
     assert result.passed is False
     assert "leak.txt" in result.detail
+    # location only, never the matched secret itself
+    assert "sk-ant-abcdef1234567890" not in result.detail  # pragma: allowlist secret
 
 
 def test_no_secrets_in_history_flags_private_key_header() -> None:
