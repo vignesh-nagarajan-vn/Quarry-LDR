@@ -21,7 +21,7 @@ Then prompt Claude Code to:
 - [x] Run `scripts/smoke.py` (hard $2.00 cap): done, run 08ae0cec1ee3 passed with resolvable citations at $1.36 measured (18 sources, 6 sections, 64K-token cached corpus)
 - [x] Run one full research run on a topic you give it, then reconcile this README's pricing section against the measured ledger: done, run 1497b2907a55 (3 iterations, 10 sections, $2.88 measured; pricing section updated to measured values)
 - [x] Interrupt a run, then exercise `quarry resume <run_id>` and `quarry inspect <run_id>`: done, the run above was killed mid-triage and resumed; 21 completed stages replayed from persisted payloads in 49 ms with no recomputation and no new ledger rows
-- [ ] Finish: clean-clone `make verify`, CI green, `make audit` GO, and a DECISIONS.md environment entry for this machine
+- [x] Finish: clean-clone `make verify`, CI green, `make audit` GO, and a DECISIONS.md environment entry for this machine: all done 2026-08-04 (clean clone of f439e89 passed format, lint, mypy, 292 tests, and audit GO; CI green on every push; environment entry in DECISIONS.md)
 
 ## Why this exists: the cost math
 
@@ -39,7 +39,7 @@ Prerequisites: an NVIDIA GPU (8 GB VRAM or more recommended), Docker Desktop or 
 ```bash
 git clone https://github.com/vignesh-nagarajan-vn/Quarry-LDR
 cd Quarry-LDR
-make bootstrap
+make bootstrap                # fresh Windows without GNU make: powershell -ExecutionPolicy Bypass -File scripts/bootstrap.ps1
 cp .env.example .env          # paste your ANTHROPIC_API_KEY
 make searxng                  # starts local search in Docker
 uv run python scripts/download_models.py   # fetches llama-server and the triage GGUF
