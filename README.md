@@ -19,8 +19,8 @@ Then prompt Claude Code to:
 
 - [x] Start SearXNG (`quarry searxng up`) and confirm the JSON API answers on localhost:8888
 - [x] Run `scripts/smoke.py` (hard $2.00 cap): done, run 08ae0cec1ee3 passed with resolvable citations at $1.36 measured (18 sources, 6 sections, 64K-token cached corpus)
-- [ ] Run one full research run on a topic you give it, then reconcile this README's pricing section against the measured ledger
-- [ ] Interrupt a run, then exercise `quarry resume <run_id>` and `quarry inspect <run_id>`
+- [x] Run one full research run on a topic you give it, then reconcile this README's pricing section against the measured ledger: done, run 1497b2907a55 (3 iterations, 10 sections, $2.88 measured; pricing section updated to measured values)
+- [x] Interrupt a run, then exercise `quarry resume <run_id>` and `quarry inspect <run_id>`: done, the run above was killed mid-triage and resumed; 21 completed stages replayed from persisted payloads in 49 ms with no recomputation and no new ledger rows
 - [ ] Finish: clean-clone `make verify`, CI green, `make audit` GO, and a DECISIONS.md environment entry for this machine
 
 ## Why this exists: the cost math
@@ -28,7 +28,7 @@ Then prompt Claude Code to:
 | Approach | What happens | Cost per report |
 | --- | --- | --- |
 | Naive (All API) | ~750K raw tokens through Opus for triage and synthesis | $10 to $15 |
-| Hybrid (Quarry-LDR) | Local GPU embeds, dedups, reranks, triages; ~60K tokens to API | under $1 |
+| Hybrid (Quarry-LDR) | Local GPU embeds, dedups, reranks, triages; ~60K tokens to API | $1.36 to $2.88 measured |
 
 Equal or better output at roughly a tenth of the cost, because the API only ever sees evidence worth reasoning about.
 
@@ -64,7 +64,7 @@ Two caveats the ledger encodes:
 - Sonnet 5 pricing above is introductory through August 31, 2026, then becomes $3 in, $15 out. The pricing table is date aware, so ledgers stay accurate after the change.
 - Claude 4.7 and later use a tokenizer that produces roughly 30 percent more tokens for the same text. Costs are always computed from the `usage` block the API returns, never from character counts.
 
-A realistic substantive report (3 loop iterations, ~300 sources) costs $1.00 to $1.50. That buys one Opus plan call, a Sonnet gap call per iteration, and section-by-section Opus synthesis over a prompt-cached corpus. Caching matters: ten section calls over a 60K token corpus cost $0.87 with the 1 hour cache versus $3.00 without.
+Measured on the first live runs (2026-08-04): a substantive report (3 loop iterations, 10 sections, ~60K-token cached corpus) cost $2.88; the single-iteration 6-section smoke run cost $1.36. That buys one Opus plan call, a Sonnet gap call per iteration, and section-by-section Opus synthesis over a prompt-cached corpus. The original $1.00 to $1.50 projection predates claude-opus-5, whose default adaptive thinking roughly doubles output-token spend. Caching matters and measured almost exactly as projected: corpus transport for ten section calls cost $0.84 with the 1 hour cache versus $2.89 if each call re-sent the corpus uncached.
 
 ## How it works
 
