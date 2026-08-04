@@ -4,6 +4,56 @@ How Quarry-LDR turns a topic into a cited report, what owns the GPU, what hardwa
 
 ## Pipeline
 
+The complete architecture, and which side of the cost line each stage runs on:
+
+```mermaid
+flowchart TB
+    topic(["Research topic"])
+    report(["Cited markdown report<br/>with cost ledger and run manifest"])
+
+    subgraph api["Anthropic API: the brain, metered"]
+        PLAN["PLAN<br/>Opus 5 decomposes the topic into<br/>8 to 15 sub-questions"]
+        GAP["GAP<br/>Sonnet 5 checks coverage<br/>against the plan"]
+        SYNTH["SYNTHESIZE<br/>Opus 5 writes section by section<br/>over one prompt-cached,<br/>token-budgeted corpus"]
+    end
+
+    subgraph local["Local machine: the quarry, free"]
+        subgraph ingest["Ingest"]
+            SEARCH["SEARCH<br/>SearXNG in Docker"]
+            FETCH["FETCH<br/>httpx with robots.txt and<br/>a content-addressed cache"]
+            EXTRACT["EXTRACT<br/>trafilatura"]
+            CHUNK["CHUNK<br/>about 512 tokens each"]
+        end
+        subgraph gpu["GPU, under the VRAM arbiter: hard 6.5 GB budget, LRU eviction"]
+            EMBED["EMBED<br/>bge-m3"]
+            DEDUP["DEDUP<br/>SimHash plus cosine"]
+            RERANK["RERANK<br/>bge-reranker-v2-m3<br/>cross-encoder"]
+            TRIAGE["TRIAGE<br/>Qwen3 4B via llama-server"]
+        end
+        LANCE[("LanceDB<br/>vector index")]
+        STATE[("SQLite run store<br/>every stage transition is a row,<br/>so runs resume")]
+        RENDER["RENDER<br/>citations resolve to<br/>URL plus chunk offsets"]
+    end
+
+    topic --> PLAN
+    PLAN -->|"seed queries"| SEARCH
+    SEARCH --> FETCH
+    FETCH --> EXTRACT
+    EXTRACT --> CHUNK
+    CHUNK -->|"roughly 750K raw tokens"| EMBED
+    EMBED --> DEDUP
+    DEDUP -->|"drop rate tracks source overlap"| LANCE
+    LANCE -->|"ANN top 200 per sub-question"| RERANK
+    RERANK -->|"top 40"| TRIAGE
+    TRIAGE -->|"roughly 60K tokens of evidence"| GAP
+    GAP -->|"gaps: new queries, up to 3 passes"| SEARCH
+    GAP -->|"saturated"| SYNTH
+    SYNTH --> RENDER
+    RENDER --> report
+```
+
+Stage by stage:
+
 ```
 topic
   |
@@ -70,7 +120,7 @@ The arbiter measures real VRAM before and after every load and corrects declared
 Quarry-LDR is designed for a laptop NVIDIA RTX 5060 Mobile: 8 GB GDDR7, Blackwell architecture, compute capability `sm_120`. Three constraints from that card shape the whole system:
 
 - **Blackwell needs CUDA 12.8 or newer kernels.** Older PyTorch and llama.cpp builds do not ship `sm_120` kernels; the project pins the cu128 PyTorch wheel index. `scripts/verify_gpu.py` proves a real matmul executes on device.
-- **8 GB VRAM total, roughly 7 GB usable** after the OS and display take their cut, hence the 6.5 GB arbiter budget. Partial offload is catastrophic, not gradual: a model that does not fit entirely in VRAM decodes an order of magnitude slower over PCIe, so the arbiter enforces full residency or refuses to load.
+- **8 GB VRAM, about 7 GB usable after the OS cut**, hence the 6.5 GB arbiter budget. Partial offload decodes an order of magnitude slower over PCIe, so the arbiter enforces full residency or refuses to load.
 - **Laptops throttle.** Sustained multi-hour load runs well below burst benchmarks; actual tokens per second are logged so you can see it, and `scripts/bench_vram.py` measures footprints and throughput on your card.
 
 Any CUDA GPU with compute capability 8.0 or newer also works: `verify_gpu.py` checks capability at least (8, 0), and you should set `gpu.vram_budget_mb` to about 80 percent of your card's VRAM. `DECISIONS.md` carries two measured baselines: the RTX 4060 (`sm_89`) development machine (nDCG regression, llama-server latency) and the RTX 5060 Mobile (`sm_120`) deployment machine (footprints, sustained throughput, and the one-time PTX JIT cost of the cuda-12.4 llama.cpp build on Blackwell).
