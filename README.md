@@ -8,15 +8,15 @@
 
 <sub><b>Language & AI</b></sub>
 
-<img src="https://img.shields.io/badge/Python_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12"> <img src="https://img.shields.io/badge/PyTorch_cu128-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch cu128"> <img src="https://img.shields.io/badge/Claude_API-D97757?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude API"> <img src="https://img.shields.io/badge/llama.cpp-000000?style=for-the-badge" alt="llama.cpp">
+<img src="https://img.shields.io/badge/Python_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12"> <img src="https://img.shields.io/badge/PyTorch_cu128-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch cu128"> <img src="https://img.shields.io/badge/CUDA_12.8-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA 12.8"> <img src="https://img.shields.io/badge/Claude_API-D97757?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude API"> <img src="https://img.shields.io/badge/Hugging_Face-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black" alt="Hugging Face"> <img src="https://img.shields.io/badge/llama.cpp-000000?style=for-the-badge" alt="llama.cpp"> <img src="https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy">
 
 <sub><b>Data & Infrastructure</b></sub>
 
-<img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"> <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite"> <img src="https://img.shields.io/badge/LanceDB-333333?style=for-the-badge" alt="LanceDB"> <img src="https://img.shields.io/badge/SearXNG-29ABE2?style=for-the-badge" alt="SearXNG">
+<img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"> <img src="https://img.shields.io/badge/SearXNG-29ABE2?style=for-the-badge&logo=searxng&logoColor=white" alt="SearXNG"> <img src="https://img.shields.io/badge/LanceDB-333333?style=for-the-badge" alt="LanceDB"> <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite"> <img src="https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic"> <img src="https://img.shields.io/badge/HTTPX-0F766E?style=for-the-badge" alt="HTTPX"> <img src="https://img.shields.io/badge/structlog-5A5A5A?style=for-the-badge" alt="structlog"> <img src="https://img.shields.io/badge/trafilatura-5A5A5A?style=for-the-badge" alt="trafilatura">
 
-<sub><b>Status</b></sub>
+<sub><b>Tooling</b></sub>
 
-<img src="https://github.com/vignesh-nagarajan-vn/Quarry-LDR/actions/workflows/ci.yml/badge.svg" alt="CI"> <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="MIT license">
+<img src="https://img.shields.io/badge/uv-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv"> <img src="https://img.shields.io/badge/Typer-000000?style=for-the-badge&logo=typer&logoColor=white" alt="Typer"> <img src="https://img.shields.io/badge/Ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black" alt="Ruff"> <img src="https://img.shields.io/badge/mypy-2A6DB2?style=for-the-badge" alt="mypy"> <img src="https://img.shields.io/badge/pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest"> <img src="https://img.shields.io/badge/GNU_Make-A42E2B?style=for-the-badge&logo=gnu&logoColor=white" alt="GNU Make"> <img src="https://img.shields.io/badge/GitHub_Actions-2671E5?style=for-the-badge&logo=githubactions&logoColor=white" alt="GitHub Actions">
 
 </div>
 
@@ -31,11 +31,57 @@ Every claim in a report carries a citation that resolves to a source URL and chu
 | Naive (All API) | ~750K raw tokens through Opus for triage and synthesis | $10 to $15 |
 | Hybrid (Quarry-LDR) | Local GPU embeds, dedups, reranks, triages; ~60K tokens to API | $1.36 to $2.88 measured |
 
-The measured numbers come from the first live validation runs; [docs/FirstRunReport.md](docs/FirstRunReport.md) breaks down where every cent went and what the failures taught.
+The measured numbers come from the first live validation runs; [docs/FirstRunReport.md](docs/FirstRunReport.md) breaks down where every cent went and what the failures taught. Everything was built and tested end to end on one laptop card, an NVIDIA RTX 5060 Mobile with 8 GB of VRAM.
 
 ## How it works
 
-A 14-stage checkpointed pipeline: one Opus call plans sub-questions, SearXNG and a polite fetcher gather sources, the local GPU embeds, deduplicates, reranks, and triages them down to a token-budgeted evidence corpus, a Sonnet gap check decides whether to loop, and Opus writes the report section by section over one prompt-cached corpus. A VRAM arbiter with a hard 6.5 GB budget owns all GPU residency so three models share one 8 GB card safely. Diagram, arbiter rules, and every configuration key: [docs/Architecture.md](docs/Architecture.md).
+```mermaid
+flowchart TB
+    topic(["Research topic"])
+    report(["Cited markdown report<br/>with cost ledger and run manifest"])
+
+    subgraph api["Anthropic API: the brain, metered"]
+        PLAN["PLAN<br/>Opus 5 decomposes the topic into<br/>8 to 15 sub-questions"]
+        GAP["GAP<br/>Sonnet 5 checks coverage<br/>against the plan"]
+        SYNTH["SYNTHESIZE<br/>Opus 5 writes section by section<br/>over one prompt-cached,<br/>token-budgeted corpus"]
+    end
+
+    subgraph local["Local machine: the quarry, free"]
+        subgraph ingest["Ingest"]
+            SEARCH["SEARCH<br/>SearXNG in Docker"]
+            FETCH["FETCH<br/>httpx with robots.txt and<br/>a content-addressed cache"]
+            EXTRACT["EXTRACT<br/>trafilatura"]
+            CHUNK["CHUNK<br/>about 512 tokens each"]
+        end
+        subgraph gpu["GPU, under the VRAM arbiter: hard 6.5 GB budget, LRU eviction"]
+            EMBED["EMBED<br/>bge-m3"]
+            DEDUP["DEDUP<br/>SimHash plus cosine"]
+            RERANK["RERANK<br/>bge-reranker-v2-m3<br/>cross-encoder"]
+            TRIAGE["TRIAGE<br/>Qwen3 4B via llama-server"]
+        end
+        LANCE[("LanceDB<br/>vector index")]
+        STATE[("SQLite run store<br/>every stage transition is a row,<br/>so runs resume")]
+        RENDER["RENDER<br/>citations resolve to<br/>URL plus chunk offsets"]
+    end
+
+    topic --> PLAN
+    PLAN -->|"seed queries"| SEARCH
+    SEARCH --> FETCH
+    FETCH --> EXTRACT
+    EXTRACT --> CHUNK
+    CHUNK -->|"roughly 750K raw tokens"| EMBED
+    EMBED --> DEDUP
+    DEDUP -->|"drop rate tracks source overlap"| LANCE
+    LANCE -->|"ANN top 200 per sub-question"| RERANK
+    RERANK -->|"top 40"| TRIAGE
+    TRIAGE -->|"roughly 60K tokens of evidence"| GAP
+    GAP -->|"gaps: new queries, up to 3 passes"| SEARCH
+    GAP -->|"saturated"| SYNTH
+    SYNTH --> RENDER
+    RENDER --> report
+```
+
+A 14-stage checkpointed pipeline: one Opus call plans sub-questions, SearXNG and a polite fetcher gather sources, and the local GPU embeds, deduplicates, reranks, and triages them down to a token-budgeted evidence corpus. A Sonnet gap check then decides whether to loop, and Opus writes the report section by section over one prompt-cached corpus. A VRAM arbiter with a hard 6.5 GB budget owns all GPU residency so three models share one 8 GB card safely. Diagram, arbiter rules, and every configuration key: [docs/Architecture.md](docs/Architecture.md).
 
 ## Run it
 
@@ -59,14 +105,14 @@ The report lands in `data/reports/`, with a cost ledger and a run manifest appen
 - [docs/Architecture.md](docs/Architecture.md): pipeline diagram, VRAM arbiter, hardware design target, full configuration reference, API pricing the ledger uses.
 - [docs/FirstRunReport.md](docs/FirstRunReport.md): the live validation story; measured costs, the bugs only production could find, and what each dollar bought.
 - [docs/Troubleshooting.md](docs/Troubleshooting.md): symptoms, causes, and exact fixes.
-- `CLAUDE.md`: invariants and operating rules for coding sessions.
-- `COMMIT.md`: the commit contract.
-- `DECISIONS.md`: every design decision and measured deviation.
+- [CLAUDE.md](CLAUDE.md): invariants and operating rules for coding sessions.
+- [COMMIT.md](COMMIT.md): the commit contract.
+- [DECISIONS.md](DECISIONS.md): every design decision and measured deviation.
 
 ## Contributing
 
-Read `CLAUDE.md` for the invariants (they are enforced by tests) and `COMMIT.md` for the commit contract. Run `make verify` before any PR: format, lint, type check, and the CPU-only test suite must pass without network or an API key.
+Read [CLAUDE.md](CLAUDE.md) for the invariants (they are enforced by tests) and [COMMIT.md](COMMIT.md) for the commit contract. Run `make verify` before any PR: format, lint, type check, and the CPU-only test suite must pass without network or an API key.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT. See [LICENSE](LICENSE).
