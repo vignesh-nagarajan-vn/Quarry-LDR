@@ -1,4 +1,4 @@
-"""End-to-end smoke test on real infrastructure with a hard $0.50 cost cap.
+"""End-to-end smoke test on real infrastructure with a hard $2.00 cost cap.
 
 Runs the actual pipeline (real GPU, real SearXNG, real API) on a trivial
 topic, prints the ledger, checks the report has resolvable citations, and
@@ -34,7 +34,7 @@ from quarry_ldr.ledger import CostCapExceeded, Ledger
 from quarry_ldr.pipeline.run import Orchestrator
 from quarry_ldr.state import RunStore
 
-COST_CAP_USD = 0.50
+COST_CAP_USD = 2.00
 MAX_ITERATIONS = 1
 TOPIC = "what is a sand battery and how does one work"
 

@@ -64,7 +64,7 @@ Quarry-LDR turns a research topic into a cited markdown report. A local GPU comp
 | `make lint` | ruff check + mypy |
 | `make searxng` | Start SearXNG in Docker (remediation message if Docker absent) |
 | `make searxng-down` | Stop the SearXNG container |
-| `make smoke` | Real end-to-end run, $0.50 cap, prints ledger |
+| `make smoke` | Real end-to-end run, $2.00 cap, prints ledger |
 | `make audit` | Pre-public go/no-go: history secrets, paths, fixtures, em dashes |
 | `make fixtures` | Regenerate the synthetic corpus deterministically |
 
