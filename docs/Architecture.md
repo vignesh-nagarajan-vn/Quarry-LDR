@@ -12,7 +12,8 @@ topic
               seed queries and a success criterion.
   |
   v
-[SEARCH]      Local SearXNG in Docker. Free and unlimited.
+[SEARCH]      Local SearXNG in Docker. Free per query; concurrency is
+              bounded so upstream engines never see a burst.
   |
   v
 [FETCH]       httpx, robots.txt respected, per-domain rate limit,
@@ -29,7 +30,8 @@ topic
   |
   v
 [DEDUP]       Local GPU. Cosine similarity plus SimHash shingling.
-              Expect to drop 30 to 50 percent.
+              Drop rate tracks source overlap: 0 to 3 percent measured
+              on diverse live corpora, far higher on duplicate-heavy topics.
   |
   v
 [RETRIEVE]    LanceDB ANN. Top 200 per sub-question.
@@ -47,7 +49,8 @@ topic
   |          |
   |          +---> loop back to SEARCH (max iterations, default 3)
   v
-[SYNTHESIZE]  Opus 5, section by section, over a prompt-cached corpus.
+[SYNTHESIZE]  Opus 5, section by section, over one prompt-cached corpus
+              trimmed to report.corpus_budget_tokens beforehand.
   |
   v
 [RENDER]      Markdown report with numbered citations resolving to
@@ -70,7 +73,7 @@ Quarry-LDR is designed for a laptop NVIDIA RTX 5060 Mobile: 8 GB GDDR7, Blackwel
 - **8 GB VRAM total, roughly 7 GB usable** after the OS and display take their cut, hence the 6.5 GB arbiter budget. Partial offload is catastrophic, not gradual: a model that does not fit entirely in VRAM decodes an order of magnitude slower over PCIe, so the arbiter enforces full residency or refuses to load.
 - **Laptops throttle.** Sustained multi-hour load runs well below burst benchmarks; actual tokens per second are logged so you can see it, and `scripts/bench_vram.py` measures footprints and throughput on your card.
 
-Any CUDA GPU with compute capability 8.0 or newer also works: `verify_gpu.py` checks capability at least (8, 0), and you should set `gpu.vram_budget_mb` to about 80 percent of your card's VRAM. The measured numbers in `DECISIONS.md` (nDCG regression, llama-server startup and verdict latency) were taken on an RTX 4060 (`sm_89`) development machine.
+Any CUDA GPU with compute capability 8.0 or newer also works: `verify_gpu.py` checks capability at least (8, 0), and you should set `gpu.vram_budget_mb` to about 80 percent of your card's VRAM. `DECISIONS.md` carries two measured baselines: the RTX 4060 (`sm_89`) development machine (nDCG regression, llama-server latency) and the RTX 5060 Mobile (`sm_120`) deployment machine (footprints, sustained throughput, and the one-time PTX JIT cost of the cuda-12.4 llama.cpp build on Blackwell).
 
 ## Configuration reference
 
@@ -90,12 +93,13 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `models.reranker` | `BAAI/bge-reranker-v2-m3` | The quality lever; changing this changes evidence quality most |
 | `models.triage_gguf_repo` / `_file` | Qwen3 4B Q4_K_M | Local triage model; must fit VRAM entirely |
 | `gpu.vram_budget_mb` | 6656 | Hard arbiter budget; set to ~80 percent of your card's VRAM |
-| `gpu.footprints_mb.*` | embedder 1400, reranker 1300, triage 3600 | Declared per-model VRAM; corrected by `scripts/bench_vram.py` |
+| `gpu.footprints_mb.*` | embedder 2186, reranker 2128, triage 3600 | Declared per-model VRAM, measured on the 5060 Mobile; corrected by `scripts/bench_vram.py` |
 | `gpu.embed_batch_size` | 32 | Bigger is faster until it OOMs |
 | `gpu.rerank_batch_size` | 16 | Same trade as embed batch |
 | `search.searxng_url` | `http://localhost:8888` | Point at any SearXNG with JSON enabled |
 | `search.results_per_query` | 10 | More results per query, more fetching per iteration |
 | `search.timeout_s` | 15.0 | Per search request |
+| `search.max_concurrency` | 4 | Concurrent queries against SearXNG; bursts get upstream engines suspended |
 | `fetch.user_agent` | QuarryLDR/0.1 (+repo URL) | Identifying UA; keep it honest |
 | `fetch.per_domain_rps` | 1.0 | Politeness rate per domain |
 | `fetch.max_concurrency` | 8 | Global concurrent fetches |
@@ -118,3 +122,21 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `api.cache_ttl` | `1h` | Prompt cache TTL for the synthesis corpus |
 | `api.batch_poll_s` | 30.0 | Batch API poll interval |
 | `report.min_sections` / `max_sections` | 4 / 12 | Report shape bounds |
+| `report.corpus_budget_tokens` | 45000 | Synthesis evidence cap in heuristic tokens (~60K API tokens at the measured 1.32x ratio); round-robin across sub-questions by rerank score |
+
+## API pricing the ledger uses
+
+Prices in USD per million tokens, used verbatim by the cost ledger:
+
+| Model | Input | Output | Batch in | Batch out | 1h cache write | Cache read |
+| --- | --- | --- | --- | --- | --- | --- |
+| `claude-opus-5` | $5 | $25 | $2.50 | $12.50 | $10 | $0.50 |
+| `claude-sonnet-5` | $2 | $10 | $1.00 | $5.00 | $4 | $0.20 |
+| `claude-haiku-4-5-20251001` | $1 | $5 | $0.50 | $2.50 | $2 | $0.10 |
+
+Two caveats the ledger encodes:
+
+- Sonnet 5 pricing above is introductory through August 31, 2026, then becomes $3 in, $15 out. The pricing table is date aware, so ledgers stay accurate after the change.
+- Claude 4.7 and later use a tokenizer that produces roughly 30 percent more tokens for the same text. Costs are always computed from the `usage` block the API returns, never from character counts.
+
+Measured per-report economics, including where the money goes inside a run, are in [FirstRunReport.md](FirstRunReport.md).
