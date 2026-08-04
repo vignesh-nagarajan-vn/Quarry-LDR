@@ -6,6 +6,23 @@ Repository: https://github.com/vignesh-nagarajan-vn/Quarry-LDR
 
 Quarry-LDR takes a research topic and produces a cited markdown report through an iterative loop: plan, search, fetch, index, rerank, extract, find gaps, search again, synthesize. The design rests on one insight: the local GPU is a compression layer, not a brain. Its job is to turn roughly 750K tokens of raw scraped text into roughly 60K tokens of deduplicated, reranked evidence. The Anthropic API is then called on that small, high signal payload for the work that actually needs intelligence. Retrieval quality beats context stuffing, so the hybrid approach is both cheaper and better.
 
+## Deployment status (2026-08-03, remove this section before going public)
+
+Blackwell validation is done on the target RTX 5060 Mobile laptop: `verify_gpu.py` passes, all gpu-marked tests pass, measured VRAM footprints are in config, and the verify gate is green. No end-to-end report has been produced yet. Remaining, in order:
+
+Manual steps:
+
+- [ ] Install Docker Desktop with the WSL2 backend (SearXNG needs it)
+- [ ] Paste the real `ANTHROPIC_API_KEY` into `.env` (a placeholder is there now)
+
+Then prompt Claude Code to:
+
+- [ ] Start SearXNG (`quarry searxng up`) and confirm the JSON API answers on localhost:8888
+- [ ] Run `scripts/smoke.py` (hard $0.50 cap): the first live end-to-end report
+- [ ] Run one full research run on a topic you give it, then reconcile this README's pricing section against the measured ledger
+- [ ] Interrupt a run, then exercise `quarry resume <run_id>` and `quarry inspect <run_id>`
+- [ ] Finish: clean-clone `make verify`, CI green, `make audit` GO, and a DECISIONS.md environment entry for this machine
+
 ## Why this exists: the cost math
 
 | Approach | What happens | Cost per report |
