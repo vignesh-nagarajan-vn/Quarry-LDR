@@ -27,8 +27,8 @@ Then prompt Claude Code to:
 
 | Approach | What happens | Cost per report |
 | --- | --- | --- |
-| Naive (API everything) | ~750K raw tokens through Opus for triage and synthesis | $10 to $15 |
-| Hybrid (Quarry-LDR) | Local GPU embeds, dedups, reranks, triages; API sees ~60K curated tokens | under $1 |
+| Naive (All API) | ~750K raw tokens through Opus for triage and synthesis | $10 to $15 |
+| Hybrid (Quarry-LDR) | Local GPU embeds, dedups, reranks, triages; ~60K tokens to API | under $1 |
 
 Equal or better output at roughly a tenth of the cost, because the API only ever sees evidence worth reasoning about.
 
