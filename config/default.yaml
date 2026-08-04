@@ -73,4 +73,4 @@ api:
 report:
   min_sections: 4
   max_sections: 12
-  corpus_budget_tokens: 60000  # synthesis evidence cap; round-robin by rerank score across sub-questions
+  corpus_budget_tokens: 45000  # synthesis evidence cap in heuristic tokens; ~60K API tokens at the measured 1.32x ratio

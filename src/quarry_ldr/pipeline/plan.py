@@ -64,7 +64,9 @@ async def make_plan(topic: str, provider: AnthropicProvider, cfg: QuarryConfig) 
         system=PLAN_SYSTEM,
         prompt=f"Research topic: {topic}",
         schema=_PlanPayload,
-        max_tokens=4096,
+        # claude-opus-5 thinks by default inside this budget; 4096 truncated
+        # the first live plan call at exactly max_tokens and paid a retry.
+        max_tokens=8192,
         stage="plan",
     )
     return ResearchPlan(

@@ -58,6 +58,9 @@ def build_config() -> QuarryConfig:
     cfg = load_config()
     cfg.run.cost_cap_usd = COST_CAP_USD
     cfg.run.max_iterations = MAX_ITERATIONS
+    # Rehearsal breadth, matching the single-iteration depth cap: enough
+    # sections to exercise cache write + reads + citations, not a full report.
+    cfg.report.max_sections = 6
     return cfg
 
 
