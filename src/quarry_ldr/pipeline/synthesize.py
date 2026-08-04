@@ -197,17 +197,31 @@ async def synthesize(
     corpus_hash = hash_corpus(corpus)
     sections: list[ReportSection] = []
     for brief in plan_sections(plan, cfg):
-        result = await provider.complete_with_cached_corpus(
-            model=cfg.models.synthesize,
-            cache_name=f"synthesis:{corpus_hash[:12]}",
-            corpus=corpus,
-            brief=SECTION_PROMPT.format(
-                title=brief.title,
-                instructions=brief.instructions,
-                sub_question_ids=", ".join(brief.sub_question_ids),
-            ),
-            max_tokens=3000,
-            stage="synthesize",
-        )
-        sections.append(ReportSection(title=brief.title, markdown=result.text.strip()))
+
+        async def call_section(brief: SectionBrief = brief) -> tuple[str, str | None]:
+            result = await provider.complete_with_cached_corpus(
+                model=cfg.models.synthesize,
+                cache_name=f"synthesis:{corpus_hash[:12]}",
+                corpus=corpus,
+                brief=SECTION_PROMPT.format(
+                    title=brief.title,
+                    instructions=brief.instructions,
+                    sub_question_ids=", ".join(brief.sub_question_ids),
+                ),
+                # claude-opus-5 thinks inside this budget; 3000 truncated every
+                # section of the first passing smoke run and left one empty.
+                max_tokens=8192,
+                stage="synthesize",
+            )
+            return result.text.strip(), result.stop_reason
+
+        markdown, stop_reason = await call_section()
+        if stop_reason == "max_tokens":
+            logger.warning("section_hit_max_tokens", title=brief.title)
+        if not markdown:
+            # The model can spend the whole budget thinking; one retry reads
+            # the cached corpus, so the second attempt costs cents.
+            logger.warning("section_empty_retrying", title=brief.title)
+            markdown, _ = await call_section()
+        sections.append(ReportSection(title=brief.title, markdown=markdown))
     return DraftReport(topic=plan.topic, sections=sections, corpus_hash=corpus_hash)
