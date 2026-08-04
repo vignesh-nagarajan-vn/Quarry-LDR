@@ -6,14 +6,14 @@ Repository: https://github.com/vignesh-nagarajan-vn/Quarry-LDR
 
 Quarry-LDR takes a research topic and produces a cited markdown report through an iterative loop: plan, search, fetch, index, rerank, extract, find gaps, search again, synthesize. The design rests on one insight: the local GPU is a compression layer, not a brain. Its job is to turn roughly 750K tokens of raw scraped text into roughly 60K tokens of deduplicated, reranked evidence. The Anthropic API is then called on that small, high signal payload for the work that actually needs intelligence. Retrieval quality beats context stuffing, so the hybrid approach is both cheaper and better.
 
-## Deployment status (2026-08-03, remove this section before going public)
+## Deployment status (2026-08-04, remove this section before going public)
 
 Blackwell validation is done on the target RTX 5060 Mobile laptop: `verify_gpu.py` passes, all gpu-marked tests pass, measured VRAM footprints are in config, and the verify gate is green. No end-to-end report has been produced yet. Remaining, in order:
 
 Manual steps:
 
-- [ ] Install Docker Desktop with the WSL2 backend (SearXNG needs it)
-- [ ] Paste the real `ANTHROPIC_API_KEY` into `.env` (a placeholder is there now)
+- [x] Install Docker Desktop with the WSL2 backend (SearXNG needs it): done, Docker Desktop 4.85.0 per user plus WSL 2.7.11; engine startup needed the Docker AI feature disabled (unix socket creation fails on this Windows build)
+- [x] Paste the real `ANTHROPIC_API_KEY` into `.env` (a placeholder is there now)
 
 Then prompt Claude Code to:
 
