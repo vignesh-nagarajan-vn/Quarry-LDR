@@ -36,9 +36,12 @@ def test_bad_config_path_is_friendly(tmp_path: Path) -> None:
     assert "config error" in result.output
 
 
-def test_verify_reports_missing_pieces(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+def test_verify_reports_missing_pieces(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     import shutil
 
+    # chdir away from the repo so a developer's real .env cannot satisfy the
+    # API key check; the CLI reading .env from cwd is correct product behavior.
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(shutil, "which", lambda _: None)
     result = runner.invoke(app, ["verify"])
     # no docker and no API key in the test environment: preflight must fail
