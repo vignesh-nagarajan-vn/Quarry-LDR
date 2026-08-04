@@ -12,12 +12,14 @@ import respx
 from anthropic import AsyncAnthropic
 
 from quarry_ldr.config import QuarryConfig
-from quarry_ldr.ingest.chunk import Chunk, make_chunk_id
+from quarry_ldr.ingest.chunk import Chunk, HeuristicTokenCounter, make_chunk_id
 from quarry_ldr.ledger import Ledger, TokenUsage
 from quarry_ldr.pipeline.plan import ResearchPlan, SubQuestion, make_plan
 from quarry_ldr.pipeline.synthesize import (
+    _corpus_entry,
     build_evidence_corpus,
     plan_sections,
+    select_evidence,
     synthesize,
 )
 from quarry_ldr.pipeline.triage import TriagedChunk, TriageVerdict
@@ -98,6 +100,39 @@ def test_plan_sections_shape_and_bounds(cfg: QuarryConfig) -> None:
     body = briefs[1:-1]
     covered = [sq for brief in body for sq in brief.sub_question_ids]
     assert covered == [f"sq{i:02d}" for i in range(1, 13)]  # all covered, in order
+
+
+def test_select_evidence_keeps_everything_within_budget() -> None:
+    evidence = make_evidence(4)
+    kept = select_evidence(evidence, budget_tokens=100_000)
+    assert {t.chunk.chunk_id for t in kept} == {t.chunk.chunk_id for t in evidence}
+    kept_reversed = select_evidence(list(reversed(evidence)), budget_tokens=100_000)
+    assert [t.chunk.chunk_id for t in kept_reversed] == [t.chunk.chunk_id for t in kept]
+
+
+def test_select_evidence_budget_spreads_across_sub_questions() -> None:
+    # make_evidence alternates sq01/sq02; budget sized for exactly the top
+    # entry of each sub-question, so round-robin must keep one from each
+    # rather than two from the best sub-question.
+    evidence = make_evidence(6)
+    counter = HeuristicTokenCounter()
+    by_score = sorted(evidence, key=lambda t: -t.rerank_score)
+    budget = counter.count(_corpus_entry(by_score[0], 0)) + counter.count(
+        _corpus_entry(by_score[1], 0)
+    )
+    kept = select_evidence(evidence, budget_tokens=budget)
+    assert len(kept) == 2
+    assert {t.sub_question_id for t in kept} == {"sq01", "sq02"}
+    assert {t.rerank_score for t in kept} == {10.0, 9.0}  # the best of each
+
+
+def test_select_evidence_zero_budget_is_empty_and_total_stays_capped() -> None:
+    evidence = make_evidence(6)
+    assert select_evidence(evidence, budget_tokens=0) == []
+    counter = HeuristicTokenCounter()
+    for budget in (50, 120, 400):
+        kept = select_evidence(evidence, budget_tokens=budget)
+        assert sum(counter.count(_corpus_entry(t, 0)) for t in kept) <= budget
 
 
 def test_corpus_is_deterministic_and_numbers_citations() -> None:

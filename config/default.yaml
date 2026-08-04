@@ -73,3 +73,4 @@ api:
 report:
   min_sections: 4
   max_sections: 12
+  corpus_budget_tokens: 60000  # synthesis evidence cap; round-robin by rerank score across sub-questions

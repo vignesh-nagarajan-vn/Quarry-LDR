@@ -1,21 +1,29 @@
 """SYNTHESIZE stage: Opus writes the report section by section over one
 prompt-cached evidence corpus.
 
-The corpus is built once, deterministically, hashed once, and every section
-call sends the byte identical prefix with a 1h cache_control breakpoint; the
-provider raises CachePrefixError on any drift rather than silently paying
-full price.
+Evidence is first trimmed to ``report.corpus_budget_tokens`` (round-robin
+across sub-questions in descending rerank order), keeping the API payload at
+the design's ~60K tokens no matter how permissive triage was. The corpus is
+then built once, deterministically, hashed once, and every section call sends
+the byte identical prefix with a 1h cache_control breakpoint; the provider
+raises CachePrefixError on any drift rather than silently paying full price.
 """
 
 from __future__ import annotations
 
+from collections import deque
+
 from pydantic import BaseModel, Field
 
 from quarry_ldr.config import QuarryConfig
+from quarry_ldr.ingest.chunk import HeuristicTokenCounter, TokenCounter
+from quarry_ldr.logging import get_logger
 from quarry_ldr.pipeline.plan import ResearchPlan
 from quarry_ldr.pipeline.triage import TriagedChunk
 from quarry_ldr.providers.anthropic_client import AnthropicProvider, hash_corpus
 from quarry_ldr.report.citations import CitationIndex
+
+logger = get_logger(component="synthesize")
 
 
 class SectionBrief(BaseModel):
@@ -37,6 +45,51 @@ class DraftReport(BaseModel):
     corpus_hash: str = ""
 
 
+def _corpus_entry(item: TriagedChunk, number: int) -> str:
+    """One evidence entry exactly as it ships in the corpus; also the text
+    the budget counter prices, so selection and payload agree."""
+    heading = " > ".join(item.chunk.heading_path) if item.chunk.heading_path else "(top)"
+    return (
+        f"[{number}] source: {item.chunk.url} | section: {heading}\n"
+        f"claim: {item.verdict.claim}\n"
+        f"evidence: {item.verdict.evidence_span}\n"
+        f"text: {item.chunk.text}"
+    )
+
+
+def select_evidence(
+    evidence: list[TriagedChunk],
+    budget_tokens: int,
+    counter: TokenCounter | None = None,
+) -> list[TriagedChunk]:
+    """Trim evidence to the synthesis token budget.
+
+    Round-robin across sub-questions in descending rerank order, so coverage
+    degrades evenly: every sub-question keeps its strongest chunks and no
+    sub-question is dropped wholesale. An entry that no longer fits is
+    skipped and selection continues, so one oversized chunk cannot end the
+    pass early. Deterministic for a given evidence set.
+    """
+    active_counter: TokenCounter = counter if counter is not None else HeuristicTokenCounter()
+    ordered = sorted(evidence, key=lambda t: (t.sub_question_id, -t.rerank_score, t.chunk.chunk_id))
+    grouped: dict[str, deque[TriagedChunk]] = {}
+    for item in ordered:
+        grouped.setdefault(item.sub_question_id, deque()).append(item)
+    queues = deque(grouped[sq_id] for sq_id in sorted(grouped))
+    kept: list[TriagedChunk] = []
+    spent = 0
+    while queues:
+        queue = queues.popleft()
+        item = queue.popleft()
+        cost = active_counter.count(_corpus_entry(item, 0))
+        if spent + cost <= budget_tokens:
+            kept.append(item)
+            spent += cost
+        if queue:
+            queues.append(queue)
+    return kept
+
+
 def build_evidence_corpus(evidence: list[TriagedChunk], citations: CitationIndex) -> str:
     """Deterministic corpus: evidence grouped by sub-question, each chunk
     tagged with its citation number. Byte-stable across section calls."""
@@ -49,13 +102,7 @@ def build_evidence_corpus(evidence: list[TriagedChunk], citations: CitationIndex
             current_sq = item.sub_question_id
             lines.append(f"### Sub-question {current_sq}")
             lines.append("")
-        heading = " > ".join(item.chunk.heading_path) if item.chunk.heading_path else "(top)"
-        lines.append(
-            f"[{number}] source: {item.chunk.url} | section: {heading}\n"
-            f"claim: {item.verdict.claim}\n"
-            f"evidence: {item.verdict.evidence_span}\n"
-            f"text: {item.chunk.text}"
-        )
+        lines.append(_corpus_entry(item, number))
         lines.append("")
     return "\n".join(lines)
 
@@ -138,7 +185,15 @@ async def synthesize(
     citations: CitationIndex,
 ) -> DraftReport:
     """Section-by-section models.synthesize calls over the cached corpus."""
-    corpus = build_evidence_corpus(evidence, citations)
+    selected = select_evidence(evidence, cfg.report.corpus_budget_tokens)
+    if len(selected) < len(evidence):
+        logger.info(
+            "evidence_budget_applied",
+            n_in=len(evidence),
+            n_kept=len(selected),
+            budget_tokens=cfg.report.corpus_budget_tokens,
+        )
+    corpus = build_evidence_corpus(selected, citations)
     corpus_hash = hash_corpus(corpus)
     sections: list[ReportSection] = []
     for brief in plan_sections(plan, cfg):

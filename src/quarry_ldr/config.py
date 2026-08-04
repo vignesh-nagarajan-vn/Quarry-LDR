@@ -95,6 +95,7 @@ class ApiSettings(BaseModel):
 class ReportSettings(BaseModel):
     min_sections: int = 4
     max_sections: int = 12
+    corpus_budget_tokens: int = 60000
 
 
 class QuarryConfig(BaseSettings):
