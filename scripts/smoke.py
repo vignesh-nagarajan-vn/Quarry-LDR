@@ -43,7 +43,9 @@ DOCKER_REMEDIATION = (
     "then re-run this smoke test"
 )
 CITATION_MARKER = re.compile(r"\[(\d+)\]")
-_SEARXNG_PROBE_TIMEOUT_S = 2.0
+# Docker's Windows port proxy answers the first request after idle in ~3 s,
+# so a 2 s probe misreads a healthy SearXNG as down.
+_SEARXNG_PROBE_TIMEOUT_S = 10.0
 
 
 @dataclass(frozen=True)
