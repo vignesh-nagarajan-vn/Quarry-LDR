@@ -21,6 +21,7 @@ Every deviation from the build spec and every delegated design decision, with a 
 - **`quarry searxng up|down|status` CLI subcommands** instead of an extra script: the spec's script list stays as specified, and the Docker preflight lives with the rest of the CLI UX.
 - **T20 (flake8-print) ruff rule** enforces "no print outside the CLI layer" mechanically.
 - **ASYNC230/240 ignored in ruff**: small local file reads/writes in async functions are deliberate; heavy IO (LanceDB, model loads) already routes through `asyncio.to_thread`, so the rule has nothing left to catch and only adds noise.
+- **`HF_HUB_OFFLINE=1` set in `tests/conftest.py` (M10)**: with a warm cache, huggingface_hub still makes a per-file etag check over the network at model load, which pytest-socket rightly blocks; offline mode makes gpu-marked tests deterministic on any machine whose cache already holds the models (fetched outside pytest, e.g. by `scripts/bench_vram.py`).
 ## Dependencies (each new dep gets a line here)
 
 - **typer**: CLI with completion and testing support, minimal boilerplate.

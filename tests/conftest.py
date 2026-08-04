@@ -7,11 +7,18 @@ markers.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
 from quarry_ldr.config import QuarryConfig
+
+# With a warm model cache, huggingface_hub still makes a per-file etag check
+# over the network at load time, which pytest-socket rightly blocks. Offline
+# mode makes gpu-marked tests deterministic on any machine whose cache already
+# holds the models (first fetched outside pytest, e.g. by scripts/bench_vram.py).
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
