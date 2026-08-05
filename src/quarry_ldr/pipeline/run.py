@@ -825,6 +825,7 @@ class Orchestrator:
                     funnel=counts,
                     cost_by_stage=summary.by_stage,
                     out_dir=self._data_dir() / "runs" / run_id / "charts",
+                    verification=counts,
                 )
                 pdf_file = render_pdf(
                     draft,

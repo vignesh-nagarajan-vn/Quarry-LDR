@@ -10,6 +10,7 @@ from quarry_ldr.report.charts import (
     evidence_per_subquestion_chart,
     render_charts,
     source_mix_chart,
+    verification_chart,
 )
 
 
@@ -53,6 +54,22 @@ def test_cost_chart_skips_zero_spend(tmp_path: Path) -> None:
     assert "API spend by stage" in _read(out)
 
 
+def test_verification_chart_stacks_outcomes(tmp_path: Path) -> None:
+    out = verification_chart(
+        {"n_claims_checked": 40, "n_claims_rewritten": 3, "n_claims_dropped": 2},
+        tmp_path / "verification.svg",
+    )
+    assert out is not None
+    svg = _read(out)
+    assert "Claim verification" in svg
+    assert "kept (35)" in svg and "rewritten (3)" in svg and "dropped (2)" in svg
+
+
+def test_verification_chart_skips_when_nothing_checked(tmp_path: Path) -> None:
+    assert verification_chart({"n_claims_checked": 0}, tmp_path / "v.svg") is None
+    assert not (tmp_path / "v.svg").exists()
+
+
 def test_render_charts_builds_what_applies(tmp_path: Path) -> None:
     charts = render_charts(
         urls=["https://a.example/x", "https://b.example/y"],
@@ -60,8 +77,10 @@ def test_render_charts_builds_what_applies(tmp_path: Path) -> None:
         funnel={"n_chunks": 10, "n_chunks_after_dedup": 8, "n_chunks_evidence": 4},
         cost_by_stage={},
         out_dir=tmp_path,
+        verification={"n_claims_checked": 6, "n_claims_rewritten": 1, "n_claims_dropped": 0},
     )
-    assert set(charts) == {"funnel", "sources", "coverage"}  # no cost chart at $0
+    # No cost chart at $0; the verification chart joins the always-on three.
+    assert set(charts) == {"funnel", "sources", "coverage", "verification"}
     assert all(path.is_file() for path in charts.values())
 
 

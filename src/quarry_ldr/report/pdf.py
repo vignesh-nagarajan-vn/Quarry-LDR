@@ -138,8 +138,14 @@ def _build_source(
     for stage, cost in sorted(summary.by_stage.items(), key=lambda kv: -kv[1]):
         if cost > 0:
             facts.append((f"Spend: {stage}", f"USD {cost:.4f}"))
+    parts.append("#table(")
+    parts.append("  columns: (auto, 1fr),")
+    parts.append("  stroke: none,")
+    parts.append("  row-gutter: 2pt,")
+    parts.append("  column-gutter: 14pt,")
     for key, value in facts:
-        parts.append(f"- #strong[{_escape_typst(key)}:] {_escape_typst(value)}")
+        parts.append(f"  [#strong[{_escape_typst(key)}]], [{_escape_typst(value)}],")
+    parts.append(")")
     parts.append("")
     return "\n".join(parts)
 

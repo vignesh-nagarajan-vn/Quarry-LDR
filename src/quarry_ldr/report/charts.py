@@ -22,6 +22,7 @@ from matplotlib.figure import Figure
 
 ACCENT = "#b45309"  # amber-700, the Quarry accent
 NEUTRAL = "#64748b"  # slate-500
+DROPPED = "#b91c1c"  # red-700, only for verification losses
 _MAX_DOMAINS = 8
 _MAX_SQ_BARS = 15
 
@@ -101,12 +102,44 @@ def cost_by_stage_chart(by_stage: dict[str, float], out_path: Path) -> Path | No
     return _save(fig, out_path)
 
 
+def verification_chart(verification: dict[str, int], out_path: Path) -> Path | None:
+    """Kept / rewritten / dropped claims as one stacked bar; None when VERIFY
+    checked nothing (disabled, or a report with no cited sentences)."""
+    kept = int(verification.get("n_claims_checked", 0)) - (
+        int(verification.get("n_claims_rewritten", 0))
+        + int(verification.get("n_claims_dropped", 0))
+    )
+    rewritten = int(verification.get("n_claims_rewritten", 0))
+    dropped = int(verification.get("n_claims_dropped", 0))
+    total = kept + rewritten + dropped
+    if total <= 0:
+        return None
+    fig, ax = plt.subplots(figsize=(6.4, 1.5))
+    left = 0
+    for label, value, color in (
+        ("kept", kept, ACCENT),
+        ("rewritten", rewritten, NEUTRAL),
+        ("dropped", dropped, DROPPED),
+    ):
+        if value:
+            ax.barh([""], [value], left=left, color=color, label=f"{label} ({value})")
+            left += value
+    ax.set_xlim(0, total)
+    ax.set_xlabel("cited sentences", fontsize=8)
+    ax.set_title("Claim verification", fontsize=10, loc="left")
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.55), ncols=3, fontsize=8, frameon=False)
+    _style(ax)
+    ax.set_yticks([])
+    return _save(fig, out_path)
+
+
 def render_charts(
     urls: list[str],
     counts_by_sq: dict[str, int],
     funnel: dict[str, int],
     cost_by_stage: dict[str, float],
     out_dir: Path,
+    verification: dict[str, int] | None = None,
 ) -> dict[str, Path]:
     """Every chart that applies to this run; empty inputs skip their chart."""
     charts: dict[str, Path] = {}
@@ -116,6 +149,10 @@ def render_charts(
         charts["sources"] = source_mix_chart(urls, out_dir / "sources.svg")
     if counts_by_sq:
         charts["coverage"] = evidence_per_subquestion_chart(counts_by_sq, out_dir / "coverage.svg")
+    if verification is not None:
+        verify_chart = verification_chart(verification, out_dir / "verification.svg")
+        if verify_chart is not None:
+            charts["verification"] = verify_chart
     cost_chart = cost_by_stage_chart(cost_by_stage, out_dir / "cost.svg")
     if cost_chart is not None:
         charts["cost"] = cost_chart
