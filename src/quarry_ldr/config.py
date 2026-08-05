@@ -118,7 +118,11 @@ class SynthSettings(BaseModel):
 
 class VerifySettings(BaseModel):
     enabled: bool = True
-    floor: float = 0.0  # cross-encoder logit; calibrated on fixtures (DECISIONS.md)
+    # Cross-encoder logit floor, calibrated on the relevance fixtures
+    # (RTX 5060 Mobile, DECISIONS.md): grade-0 garbage pairs top out at
+    # -8.40, grade-3 directly-answering pairs bottom out at -7.12, and a
+    # sentence scored against its own source chunk sits near +10.8.
+    floor: float = -8.0
     max_rewrites: int = 2
 
 

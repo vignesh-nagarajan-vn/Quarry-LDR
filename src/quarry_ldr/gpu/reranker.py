@@ -49,8 +49,14 @@ class Reranker:
         """Lazily import sentence-transformers so CPU-only environments never
         pay the import cost unless a rerank actually happens on a GPU box."""
         from sentence_transformers import CrossEncoder
+        from torch import nn
 
-        return CrossEncoder(self.model_id, device="cuda")
+        # Identity activation pins raw logits. sentence-transformers defaults
+        # single-label cross-encoders to sigmoid, which squashes bge scores
+        # into (0, 1) and buries the verify floor's decision region below
+        # 1e-4; rerank ordering is unaffected (sigmoid is monotone) and
+        # verify.floor is calibrated on the logit scale (DECISIONS.md).
+        return CrossEncoder(self.model_id, device="cuda", activation_fn=nn.Identity())
 
     def _unload_model(self, model: Any) -> None:
         del model
@@ -59,7 +65,9 @@ class Reranker:
         """Score arbitrary (text, text) pairs, one batched pass.
 
         Serves two callers: rerank's (query, chunk) scoring and the VERIFY
-        stage's (sentence, cited evidence) entailment signal.
+        stage's (sentence, cited evidence) entailment signal. Scores are raw
+        cross-encoder logits (roughly -12 to +12 for bge-reranker-v2-m3),
+        not probabilities; verify.floor lives on this scale.
         """
         if not pairs:
             return []

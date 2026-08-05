@@ -84,7 +84,7 @@ synth:
 
 verify:
   enabled: true            # score every cited sentence against its cited chunks
-  floor: 0.0               # cross-encoder logit floor; calibrated on fixtures (DECISIONS.md)
+  floor: -8.0              # cross-encoder logit floor; calibrated on fixtures (DECISIONS.md)
   max_rewrites: 2          # rewrite attempts before a failing sentence is dropped
 
 api:

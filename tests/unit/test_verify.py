@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import pytest
+
 from quarry_ldr.config import QuarryConfig
 from quarry_ldr.gpu.local_llm import LlamaServer, LocalLLM
 from quarry_ldr.gpu.reranker import Reranker
@@ -11,6 +13,13 @@ from quarry_ldr.ingest.chunk import Chunk, make_chunk_id
 from quarry_ldr.pipeline.synthesize import DraftReport, ReportSection
 from quarry_ldr.pipeline.verify import VerificationSummary, verify_report
 from quarry_ldr.report.citations import CitationIndex
+
+
+@pytest.fixture(autouse=True)
+def _pin_floor(cfg: QuarryConfig) -> None:
+    """Pin the floor to 0.0 so the fake scores (+5 pass, -5 fail) keep their
+    meaning regardless of where calibration moves the shipped default."""
+    cfg.verify.floor = 0.0
 
 
 def make_chunk(text: str, position: int = 0) -> Chunk:
