@@ -121,9 +121,10 @@ def verification_chart(verification: dict[str, int], out_path: Path) -> Path | N
         ("rewritten", rewritten, NEUTRAL),
         ("dropped", dropped, DROPPED),
     ):
-        if value:
-            ax.barh([""], [value], left=left, color=color, label=f"{label} ({value})")
-            left += value
+        # Zero-count categories still get a (zero-width) bar so the legend
+        # tells the whole story: "dropped (0)" is the claim, not an omission.
+        ax.barh([""], [value], left=left, color=color, label=f"{label} ({value})")
+        left += value
     ax.set_xlim(0, total)
     ax.set_xlabel("cited sentences", fontsize=8)
     ax.set_title("Claim verification", fontsize=10, loc="left")

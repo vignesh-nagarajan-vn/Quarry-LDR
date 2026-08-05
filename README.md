@@ -41,7 +41,7 @@ Two lines of the project exist, one per design generation:
 
 | Branch | Version | What it is |
 | --- | --- | --- |
-| [`main`](https://github.com/vignesh-nagarajan-vn/Quarry-LDR) | 1.0.0rc1 | The v1 local-first line: your GPU plans, writes, and verifies by default at $0.00 in API spend, with `assisted` and `premium` as paid engine tiers and a branded PDF beside every report |
+| [`main`](https://github.com/vignesh-nagarajan-vn/Quarry-LDR) | v1.0.0 | The v1 local-first line: your GPU plans, writes, and verifies by default at $0.00 in API spend, with `assisted` and `premium` as paid engine tiers and a branded PDF beside every report |
 | [`archive/v0-hybrid-api`](https://github.com/vignesh-nagarajan-vn/Quarry-LDR/tree/archive/v0-hybrid-api) | [v0.9.0-beta](https://github.com/vignesh-nagarajan-vn/Quarry-LDR/releases/tag/v0.9.0-beta) | The original hybrid design, preserved as released: the local GPU compresses the web and Claude does all the reasoning, at a measured $1.36 to $2.88 per report |
 
 ## How It Works

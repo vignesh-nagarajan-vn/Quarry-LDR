@@ -17,12 +17,14 @@ from typing import Annotated, Literal, cast
 import typer
 from rich.console import Console
 
+from quarry_ldr import __version__
 from quarry_ldr.config import QuarryConfig, load_config
 from quarry_ldr.logging import setup_logging
 
 app = typer.Typer(
     name="quarry",
-    help="Quarry-LDR: local-GPU-compressed, Claude-synthesized deep research.",
+    help="Quarry-LDR: local deep research; your GPU compresses the web and, "
+    "by default, writes and verifies the cited report itself.",
     no_args_is_help=True,
     pretty_exceptions_show_locals=False,
 )
@@ -31,6 +33,23 @@ app.add_typer(searxng_app, name="searxng")
 
 console = Console()
 err_console = Console(stderr=True)
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        console.print(f"quarry-ldr {__version__}")
+        raise typer.Exit()
+
+
+@app.callback()
+def _main(
+    version: Annotated[
+        bool,
+        typer.Option("--version", callback=_version_callback, is_eager=True),
+    ] = False,
+) -> None:
+    """Quarry-LDR command line."""
+
 
 DOCKER_REMEDIATION = (
     "Docker is not available. Install Docker Desktop (Windows/macOS) or Docker "
