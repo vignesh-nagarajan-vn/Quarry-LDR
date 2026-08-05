@@ -35,7 +35,7 @@ The `engine.mode` setting decides who does the reasoning:
 
 Every claim in a report carries a citation that resolves to a source URL and chunk offsets, and must survive an entailment check against the cited text before render: sentences the evidence does not support are rewritten or dropped. Reports ship as markdown plus a branded PDF with run charts. Every run is checkpointed to SQLite, so an interrupted run resumes from its last completed stage. Every API call lands in a cost ledger computed from the API's own usage blocks, and local model calls are ledgered the same way at zero price, so the $0.00 is enforced, not asserted.
 
-The premium numbers come from the v0 live validation runs; [docs/FirstRunReport.md](docs/FirstRunReport.md) breaks down where every cent went and what the failures taught. Everything runs end to end on one laptop card, an NVIDIA RTX 5060 Mobile with 8 GB of VRAM, where the 8B writer generates at a measured 35.3 tokens per second.
+The premium numbers come from the v0 live validation runs; [docs/first-test/FirstRunReport.md](docs/first-test/FirstRunReport.md) breaks down where every cent went and what the failures taught. Everything runs end to end on one laptop card, an NVIDIA RTX 5060 Mobile with 8 GB of VRAM, where the 8B writer generates at a measured 35.3 tokens per second.
 
 Two lines of the project exist, one per design generation:
 
@@ -74,22 +74,21 @@ uv run quarry verify          # preflight check with remediation hints
 uv run quarry research "your topic"
 ```
 
-The report and its PDF land in `data/reports/`, with a cost ledger and a run manifest appended. `--engine premium` buys Claude-written prose at the measured $1.36 to $2.88; `quarry resume <run_id>` continues an interrupted run; `quarry inspect <run_id>` dumps stage-by-stage state. `make smoke` runs a capped end-to-end rehearsal first if you want proof before spending on a real topic.
+The report and its PDF land in `data/reports/`, with a cost ledger and a run manifest appended. `--engine premium` buys Claude-written prose at the measured $1.36 to $2.88; `quarry resume <run_id>` continues an interrupted run; `quarry inspect <run_id>` dumps stage-by-stage state. `make smoke-local` runs a $0 end-to-end rehearsal first if you want proof before a real topic, and `make smoke` does the same on the configured engine under a $2.00 cap. Every flag, engine, config knob, and operational caution, in one place: [docs/RunGuide.md](docs/RunGuide.md).
 
 ## Documentation
 
+- [docs/RunGuide.md](docs/RunGuide.md): the complete run guide; setup, all three engines with commands and measured costs, configuration, resume, rehearsals, operational cautions.
 - [pdf-reports/](pdf-reports/): sample PDF reports straight from the pipeline, one local ($0.00) and one assisted ($0.02), with the numbers behind each.
 - [docs/Architecture.md](docs/Architecture.md): pipeline diagram, engine modes, VRAM arbiter, hardware design target, full configuration reference, API pricing the ledger uses.
-- [docs/FirstRunReport.md](docs/FirstRunReport.md): the live validation story; measured costs, the bugs only production could find, and what each dollar bought.
-- [docs/ExampleReport.md](docs/ExampleReport.md): a real report the pipeline produced during validation, on dealer quoting as a performative fixed-point problem; $2.88 of API spend, verbatim except punctuation.
+- [docs/first-test/](docs/first-test/): the v0 live validation record; [FirstRunReport.md](docs/first-test/FirstRunReport.md) breaks down measured costs and the bugs only production could find, and [ExampleReport.md](docs/first-test/ExampleReport.md) is the $2.88 premium report it produced, verbatim except punctuation.
 - [docs/Troubleshooting.md](docs/Troubleshooting.md): symptoms, causes, and exact fixes.
-- [CLAUDE.md](CLAUDE.md): invariants and operating rules for coding sessions.
-- [COMMIT.md](COMMIT.md): the commit contract.
+- [CLAUDE.md](CLAUDE.md): the full operating context; purpose, architecture map, invariants, commit contract, and working rules for humans and agents.
 - [DECISIONS.md](DECISIONS.md): every design decision and measured deviation.
 
 ## Contributing
 
-Read [CLAUDE.md](CLAUDE.md) for the invariants (they are enforced by tests) and [COMMIT.md](COMMIT.md) for the commit contract. Run `make verify` before any PR: format, lint, type check, and the CPU-only test suite must pass without network or an API key.
+Read [CLAUDE.md](CLAUDE.md) first: it carries the invariants (they are enforced by tests), the commit contract, and the working conventions. Run `make verify` before any PR: format, lint, type check, and the CPU-only test suite must pass without network or an API key.
 
 ## License and Acknowledgements
 
