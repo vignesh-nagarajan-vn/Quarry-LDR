@@ -190,7 +190,7 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `search.results_per_query` | 10 | More results per query, more fetching per iteration |
 | `search.timeout_s` | 15.0 | Per search request |
 | `search.max_concurrency` | 4 | Concurrent queries against SearXNG; bursts get upstream engines suspended |
-| `fetch.user_agent` | QuarryLDR/0.1 (+repo URL) | Identifying UA; keep it honest |
+| `fetch.user_agent` | QuarryLDR/1.0 (+repo URL) | Identifying UA; keep it honest |
 | `fetch.per_domain_rps` | 1.0 | Politeness rate per domain |
 | `fetch.max_concurrency` | 8 | Global concurrent fetches |
 | `fetch.timeout_s` | 20.0 | Per fetch |

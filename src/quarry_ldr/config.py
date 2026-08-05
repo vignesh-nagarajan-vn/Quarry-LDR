@@ -74,7 +74,7 @@ class SearchSettings(BaseModel):
 
 
 class FetchSettings(BaseModel):
-    user_agent: str = "QuarryLDR/0.1 (+https://github.com/vignesh-nagarajan-vn/Quarry-LDR)"
+    user_agent: str = "QuarryLDR/1.0 (+https://github.com/vignesh-nagarajan-vn/Quarry-LDR)"
     per_domain_rps: float = 1.0
     max_concurrency: int = 8
     timeout_s: float = 20.0

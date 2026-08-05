@@ -46,7 +46,7 @@ search:
   max_concurrency: 4       # concurrent queries against SearXNG; unbounded bursts get upstream engines suspended
 
 fetch:
-  user_agent: "QuarryLDR/0.1 (+https://github.com/vignesh-nagarajan-vn/Quarry-LDR)"
+  user_agent: "QuarryLDR/1.0 (+https://github.com/vignesh-nagarajan-vn/Quarry-LDR)"
   per_domain_rps: 1.0      # token-bucket rate limit per domain
   max_concurrency: 8       # global concurrent fetches
   timeout_s: 20.0
