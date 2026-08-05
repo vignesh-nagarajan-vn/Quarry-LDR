@@ -1,6 +1,6 @@
 [project]
 name = "quarry-ldr"
-version = "0.1.0"
+version = "1.0.0rc1"
 description = "Hybrid local/API deep research: a local GPU compresses the web into dense evidence, Claude reasons over it."
 readme = "README.md"
 requires-python = ">=3.12"
