@@ -3,7 +3,7 @@
 Scans the full git history for secret patterns, checks every tracked file for
 absolute personal paths and identifiers, verifies license presence, verifies
 fixtures are synthetic (provenance marker emitted by make_fixtures.py),
-and enforces the no-em-dash rule in README.md, CLAUDE.md, and COMMIT.md.
+and enforces the no-em-dash rule on the human-facing markdown set.
 Prints a verdict and exits nonzero on no-go.
 
 Structure: every check below is a pure function of a repo root (or, for the
@@ -54,11 +54,11 @@ EM_DASH = "\u2014"
 EM_DASH_FILES = (
     "README.md",
     "CLAUDE.md",
-    "COMMIT.md",
     "docs/Architecture.md",
+    "docs/RunGuide.md",
     "docs/Troubleshooting.md",
-    "docs/FirstRunReport.md",
-    "docs/ExampleReport.md",
+    "docs/first-test/FirstRunReport.md",
+    "docs/first-test/ExampleReport.md",
     "pdf-reports/README.md",
 )
 

@@ -245,4 +245,4 @@ Two caveats the ledger encodes:
 - Sonnet 5 pricing above is introductory through August 31, 2026, then becomes $3 in, $15 out. The pricing table is date aware, so ledgers stay accurate after the change.
 - Claude 4.7 and later use a tokenizer that produces roughly 30 percent more tokens for the same text. Costs are always computed from the `usage` block the API returns, never from character counts.
 
-Measured per-report economics, including where the money goes inside a run, are in [FirstRunReport.md](FirstRunReport.md).
+Measured per-report economics, including where the money goes inside a run, are in [first-test/FirstRunReport.md](first-test/FirstRunReport.md).

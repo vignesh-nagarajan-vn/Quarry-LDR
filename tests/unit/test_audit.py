@@ -310,8 +310,7 @@ def test_no_em_dash_flags_planted_dash(tmp_path: Path) -> None:
 
 def test_no_em_dash_passes_clean_files(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("Quarry: a research tool\n", encoding="utf-8")
-    (tmp_path / "CLAUDE.md").write_text("Operating rules.\n", encoding="utf-8")
-    (tmp_path / "COMMIT.md").write_text("Commit contract.\n", encoding="utf-8")
+    (tmp_path / "CLAUDE.md").write_text("Operating rules and commit contract.\n", encoding="utf-8")
     result = audit.check_no_em_dash(tmp_path)
     assert result.passed is True
 

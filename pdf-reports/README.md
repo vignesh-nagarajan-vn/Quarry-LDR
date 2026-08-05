@@ -7,6 +7,8 @@ These PDFs are sample generations: real, unedited pipeline output, included to s
 | [iron-air-batteries-local-engine.pdf](iron-air-batteries-local-engine.pdf) | `local` (default) | 3 | $0.00 | 127 of 127 kept | `98f5948eb366` |
 | [sand-battery-assisted-engine.pdf](sand-battery-assisted-engine.pdf) | `assisted` | 1 | $0.0224 | 84 of 84 kept | `b41bf5186509` |
 
-The local report cost nothing because the Qwen3 8B writer, the 4B triage model, and the verification cross-encoder all ran on the local GPU; its ledger records real token counts at zero price. The assisted report's entire cost is one Haiku 4.5 polish pass over the locally written draft. A `premium` (Claude-written) sample exists as markdown in [docs/ExampleReport.md](../docs/ExampleReport.md); it predates the PDF stage.
+The local report cost nothing because the Qwen3 8B writer, the 4B triage model, and the verification cross-encoder all ran on the local GPU; its ledger records real token counts at zero price. The assisted report's entire cost is one Haiku 4.5 polish pass over the locally written draft. A `premium` (Claude-written) sample exists as markdown in [docs/first-test/ExampleReport.md](../docs/first-test/ExampleReport.md); it predates the PDF stage.
 
-Costs, quality trade-offs, and how the engines differ: see the engine table in the [main README](../README.md) and [docs/Architecture.md](../docs/Architecture.md).
+These samples live here, tracked in git, rather than in `data/reports/` because `data/` is the gitignored runtime output directory: real runs write there, the repo never does.
+
+Costs, quality trade-offs, and how the engines differ: see the engine table in the [main README](../README.md), [docs/Architecture.md](../docs/Architecture.md), and the full [docs/RunGuide.md](../docs/RunGuide.md).
