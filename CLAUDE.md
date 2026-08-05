@@ -1,12 +1,26 @@
 # CLAUDE.md
 
-Operating instructions for Claude Code sessions in this repo. Terse on purpose.
+The complete operating context for anyone, human or agent, working in this repo: what the system is, how it is laid out, the invariants that must never break, the commit contract, and the working conventions. Read this before touching code.
 
 ## Purpose
 
-Quarry-LDR turns a research topic into a cited report (markdown plus a branded PDF). A local GPU compresses ~750K tokens of scraped web text into ~60K tokens of deduplicated, reranked evidence, and `engine.mode` decides who reasons over it: `local` (default, Qwen3 8B/4B via llama-server, $0.00, no API key), `assisted` (local draft, Haiku gap checks and polish), or `premium` (Claude plans, audits, writes; measured $1.36 to $2.88 per report). VERIFY scores every cited sentence against its cited chunks in every mode.
+Quarry-LDR turns a research topic into a cited report (markdown plus a branded PDF). A local GPU compresses ~750K tokens of scraped web text into ~60K tokens of deduplicated, reranked evidence, and `engine.mode` decides who reasons over it: `local` (default, Qwen3 8B/4B via llama-server, $0.00, no API key), `assisted` (local draft, Haiku gap checks and polish, measured $0.02 on the smoke rehearsal), or `premium` (Claude plans, audits, writes; measured $1.36 to $2.88 per report). VERIFY scores every cited sentence against its cited chunks in every mode and rewrites or drops what the evidence does not support.
 
-## Architecture map
+The design bet, proven by the measured numbers: compression is the expensive part of research and a consumer GPU does it free; reasoning over compressed evidence is cheap enough to run locally by default and to buy selectively when quality demands it.
+
+## Orientation
+
+Read in this order when new to the repo:
+
+1. [README.md](README.md): what it is, the engine table, the branch/version table.
+2. [docs/Architecture.md](docs/Architecture.md): the pipeline, engine routing, VRAM arbiter, every config key.
+3. [docs/RunGuide.md](docs/RunGuide.md): how to actually drive it, per engine.
+4. [DECISIONS.md](DECISIONS.md): why everything is the way it is, with measured numbers. Any change that contradicts a DECISIONS entry needs a new entry, not a silent override.
+5. This file's invariants and contracts, which bind every change.
+
+The v0 hybrid design is preserved on branch `archive/v0-hybrid-api` (released as v0.9.0-beta); `main` is the v1 local-first line.
+
+## Architecture Map
 
 | Path | Owns |
 | --- | --- |
@@ -25,7 +39,13 @@ Quarry-LDR turns a research topic into a cited report (markdown plus a branded P
 | `src/quarry_ldr/providers/local_client.py` | The llama-server backend: same protocol, $0 ledger rows |
 | `src/quarry_ldr/report/` | Render + citations; every claim resolves to URL + chunk anchor |
 | `src/quarry_ldr/report/pdf.py`, `charts.py` | Branded Typst PDF + matplotlib run charts, fail-soft |
+| `src/quarry_ldr/cli.py` | Typer CLI: research, resume, inspect, runs, verify, searxng |
 | `scripts/` | bootstrap, model download, GPU verify, VRAM bench, fixtures, audit, smoke |
+| `config/default.yaml` | Every default, mirrored byte-for-meaning in config.py (a drift test enforces it) |
+| `docker/` | SearXNG compose file and settings (JSON format enabled) |
+| `tests/` | `unit/` (CPU, offline, the default selection), `integration/` (gpu/live marked), `fixtures/` (synthetic) |
+| `pdf-reports/` | Tracked sample PDFs with their measured numbers; `data/` stays runtime-only and gitignored |
+| `docs/first-test/` | The v0 live validation record: cost anatomy and the $2.88 example report |
 
 ## Invariants, never break these
 
@@ -34,8 +54,8 @@ Quarry-LDR turns a research topic into a cited report (markdown plus a branded P
 3. Prompt cache prefixes are byte stable, asserted by hash; drift raises, it does not pay.
 4. Every claim in a report carries a citation that resolves to a URL and chunk offsets, and VERIFY gates it against the cited text before render.
 5. Pipeline stages are batched by model: embed everything, then rerank, then triage. Never interleave GPU models; the synth 8B is resident only alone.
-6. No secrets, personal paths, or real scraped content in the repo or its history. Fixtures are synthetic.
-7. The default test selection runs on CPU with no network and no API key, always.
+6. No secrets, personal paths, or real scraped content in the repo or its history. Fixtures are synthetic (`.example` URLs, provenance marker). The tracked sample reports in `pdf-reports/` are pipeline *output*, which is fine; raw fetched corpora are not.
+7. The default test selection runs on CPU with no network and no API key, always. GPU and live tests are opt-in via `-m gpu` / `-m live`.
 8. Measured-vs-declared VRAM corrections reject a measurement under 25 percent of the declared footprint as implausible and keep the declared value (Windows WDDM hides child-process VRAM from `mem_get_info`).
 
 ## Commands
@@ -54,25 +74,45 @@ Quarry-LDR turns a research topic into a cited report (markdown plus a branded P
 | `make audit` | Pre-public go/no-go: history secrets, paths, fixtures, em dashes |
 | `make fixtures` | Regenerate the synthetic corpus deterministically |
 
-## Conventions
+GPU-marked tests run as `uv run python -m pytest -m gpu <path> --no-cov` (module form works on machines where app-control policies block venv exe shims; prefer it in automation).
+
+## Commit Contract
+
+History is written for a public repo: no personal detail, no internal paths, no secrets, ever.
+
+**Format.** Conventional Commits with the enforced type set `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `chore`, `build`, `ci`. Scope is a module path segment: `feat(gpu): ...`, `fix(ingest): ...`, `chore(repo): ...` for cross-cutting. Subject in imperative mood, lowercase, no trailing period, 72 characters maximum. Footer ties the commit to its milestone: `Refs: M<n>`.
+
+**Body.** Required for anything touching GPU memory, API cost, or the citation path. State measured impact, not intent: "Reduces synthesis cost from $3.00 to $0.87 on the 10-section fixture run" beats "improves caching". Cost discipline is a hard rule: any change touching an API call path must state the token and dollar impact in the commit body, measured, not guessed. The ledger and its tests are the source of truth for pricing math.
+
+**Granularity.** One logical change per commit. A milestone is one commit unless it exceeds roughly 400 changed lines, then split along module boundaries.
+
+**Pre-commit checklist.** Tests green (`make test`); `make verify` clean; secret scan clean (pre-commit runs detect-secrets); docs updated if behavior changed; `DECISIONS.md` updated if a dependency or design choice changed.
+
+A good example:
+
+```
+feat(gpu): enforce hard VRAM budget with LRU eviction in arbiter
+
+Budget violations are now impossible: acquiring a third model whose
+footprint would exceed 6656 MB evicts the least recently used resident
+first. Measured on the fake backend: peak declared residency 6200 MB
+across the embed->rerank->triage swap sequence, previously unbounded.
+
+Refs: M2
+```
+
+A bad one: `Fixed some GPU stuff and updated docs (WIP)`. No type or scope, past tense, vague, bundles unrelated changes, uncommitted-quality marker, no milestone, no measured impact.
+
+## Code Conventions
 
 - ruff for format and lint, mypy for types, full type hints everywhere.
 - pydantic models at every boundary; parse, do not pass dicts around.
 - Async by default in pipeline code; sync only where a library forces it (LanceDB), wrapped in `asyncio.to_thread`.
 - Structured logging with `run_id` and `stage` bound on every event; `redact()` already runs on every sink, keep it that way.
 - Windows, Linux, and WSL2 all work: pathlib everywhere, no shell-isms in library code.
+- Prose convention for all human-facing markdown: no em dashes (the audit enforces this on the tracked doc set).
 
-## Cost discipline
-
-Any change touching an API call path must state the token and dollar impact in the commit body, measured, not guessed. The ledger and its tests are the source of truth for pricing math.
-
-## Session guidance
-
-- Fan-out suits module-parallel work with frozen interfaces (the ingest and index layers, report/scripts/docs polish). Orchestration, the arbiter, the provider, and the state machine are sequential work; do them in one context.
-- Keep subagents on cheaper models (Sonnet or Haiku). The orchestrating model reviews and judges; it does not type boilerplate.
-- Read files, run tests, and grep via delegated agents when context is tight.
-
-## Adding a new pipeline stage
+## Adding a New Pipeline Stage
 
 1. Add the stage to `Stage` in `state.py` in execution order.
 2. Write the stage function in `pipeline/` taking injected components, returning pydantic models.
@@ -82,7 +122,14 @@ Any change touching an API call path must state the token and dollar impact in t
 6. Add unit tests against fixtures; update `quarry inspect` expectations.
 7. Update the docs/Architecture.md diagram and this map if a new module appeared.
 
-## Do not
+## Session Guidance for Agents
+
+- Fan-out suits module-parallel work with frozen interfaces (the ingest and index layers, report/scripts/docs polish). Orchestration, the arbiter, the provider seam, and the state machine are sequential work; do them in one context.
+- Keep subagents on cheaper models. The orchestrating model reviews and judges; it does not type boilerplate.
+- Read files, run tests, and grep via delegated agents when context is tight.
+- Live runs are slow (an hour for a full local report) and search engines suspend IPs that burst: space live runs out, monitor them from their logs, and prefer `quarry resume` over restarts; checkpoints make interruption cheap.
+
+## Do Not
 
 - No LangChain, LangGraph, or orchestration frameworks.
 - No bare `except:`; catch what you mean.
@@ -91,7 +138,7 @@ Any change touching an API call path must state the token and dollar impact in t
 - No new dependency without a line in `DECISIONS.md`.
 - No model IDs hardcoded in business logic; they live in config.
 
-## Before this repo goes public
+## Before This Repo Goes Public
 
 1. `make verify` green on a clean clone.
 2. CI green on the default selection.
