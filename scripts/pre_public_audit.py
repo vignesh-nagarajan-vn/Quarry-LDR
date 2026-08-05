@@ -59,6 +59,7 @@ EM_DASH_FILES = (
     "docs/Troubleshooting.md",
     "docs/FirstRunReport.md",
     "docs/ExampleReport.md",
+    "pdf-reports/README.md",
 )
 
 # Directories that are never git-tracked source: caches, venvs, model/data
