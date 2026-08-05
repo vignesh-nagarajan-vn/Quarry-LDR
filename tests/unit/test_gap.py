@@ -91,6 +91,21 @@ async def test_analyze_gaps_parses_and_tags_iteration(
     assert entry.iteration == 2
 
 
+def test_coverage_assessment_accepts_null_missing() -> None:
+    """Haiku emits an explicit null for covered sub-questions where Sonnet
+    emits ""; both must validate without a schema-retry round trip."""
+    from quarry_ldr.pipeline.gap import CoverageAssessment
+
+    parsed = CoverageAssessment.model_validate(
+        {"sub_question_id": "sq01", "covered": True, "missing": None}
+    )
+    assert parsed.missing is None
+    assert (
+        CoverageAssessment.model_validate({"sub_question_id": "sq02", "covered": False}).missing
+        == ""
+    )
+
+
 async def test_analyze_gaps_model_override(cfg: QuarryConfig, fixtures_dir: Path) -> None:
     """The assisted engine passes model=; default call sites keep cfg.models.gap."""
     body = json.loads((fixtures_dir / "anthropic" / "gap_response.json").read_text("utf-8"))

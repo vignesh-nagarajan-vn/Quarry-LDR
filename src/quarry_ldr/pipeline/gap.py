@@ -20,7 +20,11 @@ from quarry_ldr.providers.base import Provider
 class CoverageAssessment(BaseModel):
     sub_question_id: str
     covered: bool
-    missing: str = ""  # what evidence is still absent, empty when covered
+    # What evidence is still absent. None and "" both mean "nothing":
+    # Haiku emits an explicit null for covered sub-questions where Sonnet
+    # emits an empty string, and rejecting the null cost every assisted
+    # gap call a schema-retry round trip before this widened.
+    missing: str | None = ""
 
 
 class GapAnalysis(BaseModel):
