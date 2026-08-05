@@ -97,3 +97,4 @@ report:
   min_sections: 4
   max_sections: 12
   corpus_budget_tokens: 45000  # synthesis evidence cap in heuristic tokens; ~60K API tokens at the measured 1.32x ratio
+  pdf: true                # also compile the branded PDF (fail-soft: markdown always ships)

@@ -95,6 +95,8 @@ def research(
     result = asyncio.run(Orchestrator(cfg).research(topic))
     console.print(f"[green]run:[/green] {result.run_id}  [green]engine:[/green] {cfg.engine.mode}")
     console.print(f"[green]report:[/green] {result.report_path}")
+    if result.pdf_path:
+        console.print(f"[green]pdf:[/green] {result.pdf_path}")
     console.print(f"[green]cost:[/green] ${result.total_cost_usd:.4f}")
     console.print(
         f"[green]iterations:[/green] {result.iterations}  "

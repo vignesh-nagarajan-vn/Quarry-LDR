@@ -72,6 +72,7 @@ _HEURISTIC_TOKEN_RATIO = 1.35
 class RunResult(BaseModel):
     run_id: str
     report_path: str
+    pdf_path: str | None = None
     total_cost_usd: float
     iterations: int
     n_sources: int
@@ -506,6 +507,7 @@ class Orchestrator:
                     topic,
                     draft,
                     citations,
+                    evidence,
                     ledger,
                     started_at,
                     iteration + 1,
@@ -526,6 +528,7 @@ class Orchestrator:
             return RunResult(
                 run_id=run_id,
                 report_path=render_payload["report_path"],
+                pdf_path=render_payload.get("pdf_path"),
                 total_cost_usd=ledger.total_cost_usd,
                 iterations=iteration + 1,
                 n_sources=n_sources,
@@ -778,6 +781,7 @@ class Orchestrator:
         topic: str,
         draft: DraftReport,
         citations: CitationIndex,
+        evidence: list[TriagedChunk],
         ledger: Ledger,
         started_at: datetime,
         iterations: int,
@@ -801,5 +805,39 @@ class Orchestrator:
         )
         markdown = render_report(draft, citations, ledger, manifest)
         path = write_report(markdown, self._data_dir() / "reports", run_id)
-        logger.info("render_done", report_path=str(path))
-        return {"report_path": str(path)}
+        pdf_path: str | None = None
+        if self.cfg.report.pdf:
+            try:
+                # Imported lazily: matplotlib and typst stay off the hot path
+                # for pdf-disabled runs and non-render commands.
+                from quarry_ldr.report.charts import render_charts
+                from quarry_ldr.report.pdf import render_pdf
+
+                counts_by_sq: dict[str, int] = {}
+                for item in evidence:
+                    counts_by_sq[item.sub_question_id] = (
+                        counts_by_sq.get(item.sub_question_id, 0) + 1
+                    )
+                summary = ledger.summary()
+                chart_paths = render_charts(
+                    urls=[item.chunk.url for item in evidence],
+                    counts_by_sq=counts_by_sq,
+                    funnel=counts,
+                    cost_by_stage=summary.by_stage,
+                    out_dir=self._data_dir() / "runs" / run_id / "charts",
+                )
+                pdf_file = render_pdf(
+                    draft,
+                    citations,
+                    summary,
+                    manifest,
+                    chart_paths,
+                    self._data_dir() / "reports" / f"report-{run_id}.pdf",
+                )
+                pdf_path = str(pdf_file)
+            except Exception as exc:
+                # Deliberate fail-soft: the validated markdown deliverable
+                # must never be held hostage by the PDF path's failure modes.
+                logger.warning("pdf_render_failed", error=str(exc)[:300])
+        logger.info("render_done", report_path=str(path), pdf_path=pdf_path)
+        return {"report_path": str(path), "pdf_path": pdf_path}

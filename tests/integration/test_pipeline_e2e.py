@@ -294,6 +294,10 @@ async def test_single_pass_produces_cited_report(cfg: QuarryConfig) -> None:
     assert provider.synth_calls == 10
     assert len(set(provider.corpora)) == 1
 
+    # The branded PDF ships alongside the markdown by default.
+    assert result.pdf_path is not None
+    assert Path(result.pdf_path).read_bytes()[:5] == b"%PDF-"
+
     # Run store: every stage completed.
     async with RunStore(cfg.run.data_dir / "runs.db") as store:
         run = await store.get_run(result.run_id)
@@ -329,6 +333,30 @@ async def test_verify_disabled_skips_stage(cfg: QuarryConfig) -> None:
         stages = {record.stage for record in await store.stages(result.run_id)}
     assert Stage.VERIFY not in stages
     assert Stage.RENDER in stages
+
+
+async def test_pdf_disabled_skips_pdf(cfg: QuarryConfig) -> None:
+    cfg.report.pdf = False
+    with respx.mock:
+        _mock_corpus_routes()
+        result = await _orchestrator(cfg, FakeProvider()).research("no pdf case")
+    assert result.pdf_path is None
+    assert Path(result.report_path).is_file()
+
+
+async def test_pdf_failure_is_fail_soft(cfg: QuarryConfig, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A broken PDF path logs a warning; the markdown report still ships."""
+    import quarry_ldr.report.pdf as pdf_module
+
+    def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("synthetic pdf failure")
+
+    monkeypatch.setattr(pdf_module, "render_pdf", _boom)
+    with respx.mock:
+        _mock_corpus_routes()
+        result = await _orchestrator(cfg, FakeProvider()).research("pdf fail case")
+    assert result.pdf_path is None
+    assert Path(result.report_path).is_file()
 
 
 async def test_robots_disallowed_url_never_fetched(cfg: QuarryConfig) -> None:
