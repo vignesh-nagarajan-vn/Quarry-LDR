@@ -246,7 +246,9 @@ class Orchestrator:
                     Path(self.cfg.run.models_dir),
                     spec=synth_server_spec(self.cfg),
                 )
-                synth_llm = LocalLLM(synth_server.base_url)
+                synth_llm = LocalLLM(
+                    synth_server.base_url, timeout_s=self.cfg.synth.request_timeout_s
+                )
             assert synth_llm is not None
             synth_label = f"local/{self.cfg.models.synth_gguf_file}"
             reasoning_provider = LocalProvider(
@@ -363,7 +365,9 @@ class Orchestrator:
 
                 if owns_llama and llama_server is None:
                     llama_server = LlamaServer(self.cfg, arbiter, Path(self.cfg.run.models_dir))
-                    local_llm = LocalLLM(llama_server.base_url)
+                    local_llm = LocalLLM(
+                        llama_server.base_url, timeout_s=self.cfg.triage.request_timeout_s
+                    )
                 triage_payload = await self._stage(
                     store,
                     run_id,
@@ -483,7 +487,9 @@ class Orchestrator:
                     # A run resumed straight into VERIFY never entered the
                     # loop's construction block; rewrites need the triage LLM.
                     llama_server = LlamaServer(self.cfg, arbiter, Path(self.cfg.run.models_dir))
-                    local_llm = LocalLLM(llama_server.base_url)
+                    local_llm = LocalLLM(
+                        llama_server.base_url, timeout_s=self.cfg.triage.request_timeout_s
+                    )
                 verify_payload = await self._stage(
                     store,
                     run_id,

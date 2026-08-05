@@ -16,6 +16,10 @@ def test_defaults_without_any_file() -> None:
     assert cfg.gpu.vram_budget_mb == 6656
     assert cfg.chunk.target_tokens == 512
     assert cfg.anthropic_api_key is None
+    # The synth ceiling must stay far above triage's: a full-corpus section
+    # on a throttled card is the longest local request the pipeline makes.
+    assert cfg.triage.request_timeout_s == 120.0
+    assert cfg.synth.request_timeout_s == 300.0
 
 
 def test_default_yaml_matches_model_defaults() -> None:

@@ -207,6 +207,7 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `triage.port` | 8555 | Triage llama-server port |
 | `triage.max_retries` | 2 | Retries for malformed JSON from the local model |
 | `triage.confidence_floor` | 0.3 | Verdicts below this are dropped |
+| `triage.request_timeout_s` | 120.0 | Per-request ceiling against the triage server |
 | `synth.context_tokens` | 16384 | Synth llama-server context; the per-section budget must fit inside it |
 | `synth.port` | 8556 | Synth llama-server port |
 | `synth.max_retries` | 2 | Retries for malformed JSON from the local writer |
@@ -215,6 +216,7 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `synth.reasoning_budget` | 0 | Disables Qwen3 thinking mode; sections need prose, not deliberation |
 | `synth.section_budget_tokens` | 6000 | Per-section evidence cap in heuristic tokens |
 | `synth.section_max_tokens` | 2048 | Per-section generation cap |
+| `synth.request_timeout_s` | 300.0 | Per-request ceiling; sized for a full-corpus section on a throttled card |
 | `verify.enabled` | true | Score every cited sentence against its cited chunks before render |
 | `verify.floor` | -8.0 | Cross-encoder logit floor, calibrated on fixtures (DECISIONS.md); raise for stricter reports, lower to keep more |
 | `verify.max_rewrites` | 2 | Rewrite attempts on the 4B before a failing sentence is dropped |

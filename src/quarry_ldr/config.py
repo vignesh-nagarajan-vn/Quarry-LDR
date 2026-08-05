@@ -103,6 +103,7 @@ class TriageSettings(BaseModel):
     port: int = 8555
     max_retries: int = 2
     confidence_floor: float = 0.3
+    request_timeout_s: float = 120.0
 
 
 class SynthSettings(BaseModel):
@@ -114,6 +115,10 @@ class SynthSettings(BaseModel):
     reasoning_budget: int = 0
     section_budget_tokens: int = 6000
     section_max_tokens: int = 2048
+    # Worst-case section: a full 6000-token corpus prefill plus 2048 output
+    # tokens on a thermally throttled laptop card. 120s proved too tight in
+    # a live run (httpx ReadTimeout an hour into sustained load).
+    request_timeout_s: float = 300.0
 
 
 class VerifySettings(BaseModel):

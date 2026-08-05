@@ -71,6 +71,7 @@ triage:
   port: 8555               # llama-server port (8080 collides too often)
   max_retries: 2           # retry budget for malformed JSON from the local model
   confidence_floor: 0.3    # verdicts below this confidence are dropped
+  request_timeout_s: 120   # per-request ceiling against the triage server
 
 synth:
   context_tokens: 16384    # per-section synthesis needs headroom, never the full corpus
@@ -81,6 +82,7 @@ synth:
   reasoning_budget: 0      # disables Qwen3 thinking mode; sections need prose, not deliberation
   section_budget_tokens: 6000  # per-section evidence cap in heuristic tokens
   section_max_tokens: 2048     # per-section generation cap
+  request_timeout_s: 300       # per-request ceiling; covers a full-corpus section on a throttled card
 
 verify:
   enabled: true            # score every cited sentence against its cited chunks
