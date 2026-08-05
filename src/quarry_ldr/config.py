@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field
@@ -18,6 +18,17 @@ from pydantic_settings import (
     PydanticBaseSettingsSource,
     SettingsConfigDict,
 )
+
+
+class EngineSettings(BaseModel):
+    """Which backend serves PLAN/GAP/SYNTHESIZE.
+
+    local: llama-server models, zero API calls, no API key needed.
+    assisted: local plan/draft, models.assisted for gap checks and polish.
+    premium: the v0 hybrid behavior (Claude plan/gap/synthesis).
+    """
+
+    mode: Literal["local", "assisted", "premium"] = "local"
 
 
 class RunSettings(BaseModel):
@@ -129,6 +140,7 @@ class QuarryConfig(BaseSettings):
         extra="ignore",
     )
 
+    engine: EngineSettings = Field(default_factory=EngineSettings)
     run: RunSettings = Field(default_factory=RunSettings)
     models: ModelSettings = Field(default_factory=ModelSettings)
     gpu: GpuSettings = Field(default_factory=GpuSettings)

@@ -43,12 +43,30 @@ def test_verify_reports_missing_pieces(monkeypatch: pytest.MonkeyPatch, tmp_path
     # API key check; the CLI reading .env from cwd is correct product behavior.
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(shutil, "which", lambda _: None)
-    result = runner.invoke(app, ["verify"])
+    # The key check only applies to API-calling engines; pin premium.
+    config_path = tmp_path / "cfg.yaml"
+    config_path.write_text(yaml.safe_dump({"engine": {"mode": "premium"}}), encoding="utf-8")
+    result = runner.invoke(app, ["verify", "--config", str(config_path)])
     # no docker and no API key in the test environment: preflight must fail
     # politely with remediation text, not crash.
     assert result.exit_code == 1
     assert "Docker" in result.output
     assert "ANTHROPIC_API_KEY" in result.output
+
+
+def test_verify_local_mode_skips_api_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # Default engine is local: a missing key is a skip line, not a failure.
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["verify"])
+    assert "not needed for engine.mode=local" in result.output
+    assert "set ANTHROPIC_API_KEY" not in result.output
+
+
+def test_research_rejects_bad_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["research", "some topic", "--engine", "turbo"])
+    assert result.exit_code == 2
+    assert "invalid --engine" in result.output
 
 
 def test_verify_reports_missing_local_models(
@@ -72,12 +90,15 @@ def test_verify_finds_local_models_when_present(
     (models_dir / "gguf").mkdir(parents=True)
     (models_dir / "gguf" / "tiny.gguf").write_bytes(b"")
 
+    (models_dir / "gguf" / "tiny-synth.gguf").write_bytes(b"")
+
     config_path = tmp_path / "cfg.yaml"
     config_path.write_text(
         yaml.safe_dump(
             {
                 "run": {"models_dir": str(models_dir)},
-                "models": {"triage_gguf_file": "tiny.gguf"},
+                # The default (local) engine requires the synth GGUF too.
+                "models": {"triage_gguf_file": "tiny.gguf", "synth_gguf_file": "tiny-synth.gguf"},
             }
         ),
         encoding="utf-8",

@@ -12,7 +12,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal, cast
 
 import typer
 from rich.console import Console
@@ -43,6 +43,19 @@ ConfigOpt = Annotated[
     typer.Option("--config", "-c", help="User config yaml layered over config/default.yaml."),
 ]
 
+_ENGINE_MODES = ("local", "assisted", "premium")
+
+
+def _apply_engine(cfg: QuarryConfig, engine: str | None) -> None:
+    if engine is None:
+        return
+    if engine not in _ENGINE_MODES:
+        err_console.print(
+            f"[red]invalid --engine:[/red] {engine} (choose from {', '.join(_ENGINE_MODES)})"
+        )
+        raise typer.Exit(code=2)
+    cfg.engine.mode = cast(Literal["local", "assisted", "premium"], engine)
+
 
 def _load(config: Path | None) -> QuarryConfig:
     try:
@@ -62,6 +75,10 @@ def research(
     max_iterations: Annotated[
         int | None, typer.Option(help="Override run.max_iterations for this run.")
     ] = None,
+    engine: Annotated[
+        str | None,
+        typer.Option("--engine", help="Override engine.mode: local, assisted, or premium."),
+    ] = None,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
     """Run the full research pipeline and write a cited markdown report."""
@@ -70,12 +87,13 @@ def research(
         cfg.run.cost_cap_usd = max_cost
     if max_iterations is not None:
         cfg.run.max_iterations = max_iterations
+    _apply_engine(cfg, engine)
     setup_logging(log_dir=cfg.run.data_dir / "logs", verbose=verbose)
 
     from quarry_ldr.pipeline.run import Orchestrator
 
     result = asyncio.run(Orchestrator(cfg).research(topic))
-    console.print(f"[green]run:[/green] {result.run_id}")
+    console.print(f"[green]run:[/green] {result.run_id}  [green]engine:[/green] {cfg.engine.mode}")
     console.print(f"[green]report:[/green] {result.report_path}")
     console.print(f"[green]cost:[/green] ${result.total_cost_usd:.4f}")
     console.print(
@@ -146,13 +164,18 @@ def verify(config: ConfigOpt = None) -> None:
         if not ok:
             failures += 1
 
-    console.print("[bold]quarry preflight[/bold]")
+    console.print(f"[bold]quarry preflight[/bold] (engine.mode={cfg.engine.mode})")
     key = cfg.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
-    check(
-        "anthropic api key",
-        bool(key),
-        "found in environment" if key else "set ANTHROPIC_API_KEY in .env (copy .env.example)",
-    )
+    if cfg.engine.mode == "local":
+        # Local runs make zero API calls; a missing key is not a failure.
+        detail = "found in environment" if key else "not needed for engine.mode=local"
+        console.print(f"  {'[cyan]skip[/cyan]':<20} anthropic api key: {detail}")
+    else:
+        check(
+            "anthropic api key",
+            bool(key),
+            "found in environment" if key else "set ANTHROPIC_API_KEY in .env (copy .env.example)",
+        )
     docker = shutil.which("docker")
     check("docker", docker is not None, docker or DOCKER_REMEDIATION)
     check(
@@ -183,6 +206,9 @@ def verify(config: ConfigOpt = None) -> None:
     try:
         find_server_binary(cfg.run.models_dir)
         find_gguf(cfg.run.models_dir, cfg.models.triage_gguf_file)
+        if cfg.engine.mode != "premium":
+            # Local and assisted synthesis need the synth GGUF too.
+            find_gguf(cfg.run.models_dir, cfg.models.synth_gguf_file)
         check("local models", True, f"found under {cfg.run.models_dir}")
     except LlamaServerError as exc:
         check("local models", False, exc.remediation or str(exc))

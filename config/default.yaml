@@ -5,6 +5,9 @@
 # so a missing or partial file never breaks a run. Precedence, lowest to
 # highest: model defaults < this file < --config file < QUARRY_* env vars.
 
+engine:
+  mode: local              # local ($0 API, no key needed) | assisted (Haiku gap+polish) | premium (Claude plan/gap/synthesis)
+
 run:
   max_iterations: 3        # search->triage->gap loops before forced synthesis
   cost_cap_usd: 5.0        # hard API spend cap per run; the ledger raises when crossed

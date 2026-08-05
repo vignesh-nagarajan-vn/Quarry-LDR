@@ -89,6 +89,9 @@ class FakeReranker:
 
 
 class FakeLocalLLM:
+    """Triage fake. complete_with_usage also serves local-mode GAP calls,
+    which LocalProvider routes through the resident triage model."""
+
     async def complete_typed(
         self, prompt: str, schema: type[TriageVerdict], max_tokens: int = 512, max_retries: int = 2
     ) -> TriageVerdict:
@@ -99,6 +102,61 @@ class FakeLocalLLM:
             evidence_span="fixture span" if relevant else "",
             confidence=0.8 if relevant else 0.1,
         )
+
+    async def complete_with_usage(
+        self,
+        prompt: str,
+        max_tokens: int = 512,
+        temperature: float = 0.0,
+        json_schema: dict[str, object] | None = None,
+        system: str | None = None,
+    ) -> tuple[str, TokenUsage, str | None]:
+        gap = {"saturated": True, "assessments": [], "new_queries": [], "rationale": "fixture"}
+        return json.dumps(gap), TokenUsage(input_tokens=50, output_tokens=20), "stop"
+
+
+class FakeSynthLLM:
+    """Synth-server fake for local-mode PLAN and SYNTHESIZE: returns JSON
+    text shaped by the requested schema, exactly as llama-server would."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    async def complete_with_usage(
+        self,
+        prompt: str,
+        max_tokens: int = 512,
+        temperature: float = 0.0,
+        json_schema: dict[str, object] | None = None,
+        system: str | None = None,
+    ) -> tuple[str, TokenUsage, str | None]:
+        self.calls += 1
+        properties = cast(dict[str, Any], (json_schema or {}).get("properties", {}))
+        if "sub_questions" in properties:
+            payload: dict[str, Any] = {
+                "sub_questions": [
+                    {
+                        "id": f"sq{i:02d}",
+                        "question": f"Fixture question {i} about the Vesterholm sand battery?",
+                        "queries": [f"vesterholm sand battery {i}", f"sand storage pilot {i}"],
+                        "success_criterion": f"Criterion {i}.",
+                    }
+                    for i in range(1, 9)
+                ]
+            }
+        else:
+            numbers = sorted({int(n) for n in re.findall(r"\[(\d+)\]", prompt)})[:2]
+            cites = " and ".join(f"[{n}]" for n in numbers) if numbers else ""
+            payload = {"markdown": f"Local fixture section citing {cites}."}
+        return json.dumps(payload), TokenUsage(input_tokens=100, output_tokens=60), "stop"
+
+
+class ExplodingProvider:
+    """Injected as the API provider in local-mode tests: any call proves the
+    engine leaked an API request."""
+
+    def __getattr__(self, name: str) -> Any:
+        raise AssertionError(f"API provider touched in local mode: {name}")
 
 
 class FakeProvider:
@@ -177,6 +235,10 @@ def _mock_corpus_routes() -> None:
 def _orchestrator(cfg: QuarryConfig, provider: FakeProvider) -> Orchestrator:
     # Politeness is covered by fetch tests; fixture runs should not sleep.
     cfg.fetch.per_domain_rps = 500.0
+    # These tests assert Anthropic-shaped behavior (cached corpus calls,
+    # synth_calls counts); pin the engine so the v1 local default cannot
+    # silently reroute them.
+    cfg.engine.mode = "premium"
     return Orchestrator(
         cfg,
         searx=cast(SearxClient, FakeSearx()),
@@ -344,3 +406,43 @@ async def test_inspect_summarizes_stages(cfg: QuarryConfig) -> None:
     stage_names = [record["stage"] for record in state["stages"]]
     assert stage_names[0] == "plan" and stage_names[-1] == "render"
     assert all("payload_keys" in record for record in state["stages"])
+
+
+async def test_local_engine_runs_with_no_api_and_zero_cost(cfg: QuarryConfig) -> None:
+    """The v1 default: a full run with no API key, no API provider, $0."""
+    cfg.engine.mode = "local"
+    cfg.fetch.per_domain_rps = 500.0
+    synth_fake = FakeSynthLLM()
+    orchestrator = Orchestrator(
+        cfg,
+        searx=cast(SearxClient, FakeSearx()),
+        fetcher=Fetcher(cfg.fetch),
+        embedder=cast(Embedder, FakeEmbedder()),
+        reranker=cast(Reranker, FakeReranker()),
+        local_llm=cast(LocalLLM, FakeLocalLLM()),
+        synth_llm=cast(LocalLLM, synth_fake),
+        provider=ExplodingProvider(),
+    )
+    with respx.mock:
+        _mock_corpus_routes()
+        result = await orchestrator.research("the vesterholm sand battery pilot, locally")
+
+    assert result.total_cost_usd == 0.0
+    assert synth_fake.calls >= 11  # 1 plan + 10 sections
+    report = Path(result.report_path).read_text(encoding="utf-8")
+    assert re.search(r"citing \[\d+\]", report)
+    assert "## References" in report
+    assert f"local/{cfg.models.synth_gguf_file}" in report  # ledger rows + manifest
+    assert f"local/{cfg.models.triage_gguf_file}" in report  # gap routed via triage
+
+    async with RunStore(cfg.run.data_dir / "runs.db") as store:
+        run = await store.get_run(result.run_id)
+        assert run.status is RunStatus.COMPLETED
+        entries = await store.ledger_entries(result.run_id)
+        assert entries, "local runs still record usage, at zero price"
+        for entry in entries:
+            model = cast(str, entry["model"])
+            assert model.startswith("local/")
+            assert cast(float, entry["cost_usd"]) == 0.0
+        stages = {record.stage for record in await store.stages(result.run_id)}
+        assert Stage.GAP in stages  # the loop's gap check ran locally too

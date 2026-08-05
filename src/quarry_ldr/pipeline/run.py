@@ -29,7 +29,7 @@ from pydantic import BaseModel
 from quarry_ldr.config import QuarryConfig
 from quarry_ldr.gpu.arbiter import GpuBackend, VramArbiter
 from quarry_ldr.gpu.embedder import Embedder
-from quarry_ldr.gpu.local_llm import LlamaServer, LocalLLM
+from quarry_ldr.gpu.local_llm import LlamaServer, LocalLLM, synth_server_spec
 from quarry_ldr.gpu.reranker import Reranker, ScoredChunk
 from quarry_ldr.index.store import VectorStore
 from quarry_ldr.ingest.chunk import Chunk, chunk_document
@@ -42,9 +42,16 @@ from quarry_ldr.logging import get_logger, setup_logging
 from quarry_ldr.pipeline.gap import GapAnalysis, analyze_gaps
 from quarry_ldr.pipeline.plan import ResearchPlan, make_plan
 from quarry_ldr.pipeline.retrieve import rerank_candidates, retrieve_candidates
-from quarry_ldr.pipeline.synthesize import DraftReport, build_evidence_corpus, synthesize
+from quarry_ldr.pipeline.synthesize import (
+    DraftReport,
+    build_evidence_corpus,
+    synthesize,
+    synthesize_local,
+)
 from quarry_ldr.pipeline.triage import TriagedChunk, triage_chunks
 from quarry_ldr.providers.anthropic_client import AnthropicProvider
+from quarry_ldr.providers.base import Provider
+from quarry_ldr.providers.local_client import LocalProvider
 from quarry_ldr.report.citations import CitationIndex
 from quarry_ldr.report.render import RunManifest, render_report, write_report
 from quarry_ldr.state import RunStatus, RunStore, Stage
@@ -79,7 +86,8 @@ class Orchestrator:
 
     Components are constructed lazily and are injectable via keyword
     ``overrides`` for tests: store, arbiter, searx, fetcher, embedder,
-    reranker, llama_server, local_llm, provider, vstore.
+    reranker, llama_server, local_llm, synth_server, synth_llm, provider,
+    vstore.
     """
 
     def __init__(self, cfg: QuarryConfig, **overrides: Any) -> None:
@@ -206,6 +214,42 @@ class Orchestrator:
         local_llm: LocalLLM | None = self._ov.get("local_llm")
         owns_llama = llama_server is None and local_llm is None
 
+        # ---- Engine routing: which backend serves PLAN/GAP/SYNTHESIZE.
+        mode = self.cfg.engine.mode
+        if mode == "assisted":
+            raise NotImplementedError("engine.mode=assisted lands in M16; use local or premium")
+        synth_server: LlamaServer | None = self._ov.get("synth_server")
+        synth_llm: LocalLLM | None = self._ov.get("synth_llm")
+        owns_synth = synth_server is None and synth_llm is None
+        if mode == "local":
+            if owns_synth:
+                synth_server = LlamaServer(
+                    self.cfg,
+                    arbiter,
+                    Path(self.cfg.run.models_dir),
+                    spec=synth_server_spec(self.cfg),
+                )
+                synth_llm = LocalLLM(synth_server.base_url)
+            assert synth_llm is not None
+            synth_label = f"local/{self.cfg.models.synth_gguf_file}"
+            reasoning_provider: Provider = LocalProvider(
+                ledger, synth_llm, synth_label, max_retries=self.cfg.synth.max_retries
+            )
+            models_used = {
+                "engine": mode,
+                "plan": synth_label,
+                "gap": f"local/{self.cfg.models.triage_gguf_file}",
+                "synthesize": synth_label,
+            }
+        else:  # premium: the v0 hybrid behavior, unchanged
+            reasoning_provider = provider
+            models_used = {
+                "engine": mode,
+                "plan": self.cfg.models.plan,
+                "gap": self.cfg.models.gap,
+                "synthesize": self.cfg.models.synthesize,
+            }
+
         try:
             # ---- PLAN
             plan_payload = await self._stage(
@@ -213,7 +257,7 @@ class Orchestrator:
                 run_id,
                 Stage.PLAN,
                 0,
-                lambda: self._compute_plan(topic, provider),
+                lambda: self._compute_plan(topic, reasoning_provider, synth_server),
             )
             plan = ResearchPlan.model_validate(plan_payload)
             persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
@@ -327,12 +371,34 @@ class Orchestrator:
                     logger.info("loop_max_iterations", iterations=iteration + 1)
                     break
 
+                if mode == "local":
+                    # GAP runs right after TRIAGE while the 4B server slot is
+                    # hot: routing it through triage costs zero server swaps,
+                    # where the 8B synth model would force one per iteration.
+                    assert local_llm is not None
+                    gap_provider: Provider = LocalProvider(
+                        ledger,
+                        local_llm,
+                        f"local/{self.cfg.models.triage_gguf_file}",
+                        max_retries=self.cfg.triage.max_retries,
+                    )
+                    gap_server = llama_server
+                else:
+                    gap_provider = provider
+                    gap_server = None
                 gap_payload = await self._stage(
                     store,
                     run_id,
                     Stage.GAP,
                     it,
-                    partial(self._compute_gap, plan, list(evidence_by_key.values()), provider, it),
+                    partial(
+                        self._compute_gap,
+                        plan,
+                        list(evidence_by_key.values()),
+                        gap_provider,
+                        it,
+                        gap_server,
+                    ),
                 )
                 persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
                 gap = GapAnalysis.model_validate(gap_payload)
@@ -357,7 +423,9 @@ class Orchestrator:
                 run_id,
                 Stage.SYNTHESIZE,
                 0,
-                lambda: self._compute_synthesize(plan, evidence, provider, citations),
+                lambda: self._compute_synthesize(
+                    plan, evidence, reasoning_provider, citations, synth_server
+                ),
             )
             persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
             draft = DraftReport.model_validate(synth_payload["draft"])
@@ -379,6 +447,7 @@ class Orchestrator:
                     ledger,
                     started_at,
                     iteration + 1,
+                    models_used,
                     {
                         **totals,
                         "n_chunks_after_dedup": n_kept_total,
@@ -403,11 +472,17 @@ class Orchestrator:
         finally:
             if owns_llama and llama_server is not None:
                 await llama_server.stop()
+            if owns_synth and synth_server is not None:
+                await synth_server.stop()
             await fetcher.aclose()
 
     # ------------------------------------------------------- stage computers
 
-    async def _compute_plan(self, topic: str, provider: AnthropicProvider) -> dict[str, Any]:
+    async def _compute_plan(
+        self, topic: str, provider: Provider, synth_server: LlamaServer | None = None
+    ) -> dict[str, Any]:
+        if synth_server is not None:
+            await synth_server.start()
         plan = await make_plan(topic, provider, self.cfg)
         return plan.model_dump(mode="json")
 
@@ -554,9 +629,13 @@ class Orchestrator:
         self,
         plan: ResearchPlan,
         evidence: list[TriagedChunk],
-        provider: AnthropicProvider,
+        provider: Provider,
         iteration: int,
+        llama_server: LlamaServer | None = None,
     ) -> dict[str, Any]:
+        if llama_server is not None:
+            # A replayed TRIAGE never spawned the server; gap needs it live.
+            await llama_server.start()
         gap = await analyze_gaps(plan, evidence, provider, self.cfg, iteration)
         logger.info(
             "gap_done",
@@ -570,11 +649,17 @@ class Orchestrator:
         self,
         plan: ResearchPlan,
         evidence: list[TriagedChunk],
-        provider: AnthropicProvider,
+        provider: Provider,
         citations: CitationIndex,
+        synth_server: LlamaServer | None = None,
     ) -> dict[str, Any]:
-        draft = await synthesize(plan, evidence, provider, self.cfg, citations)
-        logger.info("synthesize_done", n_sections=len(draft.sections))
+        if synth_server is not None:
+            await synth_server.start()
+        if self.cfg.engine.mode == "premium":
+            draft = await synthesize(plan, evidence, provider, self.cfg, citations)
+        else:
+            draft = await synthesize_local(plan, evidence, provider, self.cfg, citations)
+        logger.info("synthesize_done", n_sections=len(draft.sections), engine=self.cfg.engine.mode)
         return {"draft": draft.model_dump(mode="json"), "corpus_hash": draft.corpus_hash}
 
     async def _compute_render(
@@ -586,6 +671,7 @@ class Orchestrator:
         ledger: Ledger,
         started_at: datetime,
         iterations: int,
+        models_used: dict[str, str],
         counts: dict[str, int],
     ) -> dict[str, Any]:
         manifest = RunManifest(
@@ -595,9 +681,7 @@ class Orchestrator:
             finished_at=datetime.now(UTC),
             iterations=iterations,
             models={
-                "plan": self.cfg.models.plan,
-                "gap": self.cfg.models.gap,
-                "synthesize": self.cfg.models.synthesize,
+                **models_used,
                 "embedder": self.cfg.models.embedder,
                 "reranker": self.cfg.models.reranker,
                 "triage": self.cfg.models.triage_gguf_file,
