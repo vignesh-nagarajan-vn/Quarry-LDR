@@ -82,6 +82,11 @@ synth:
   section_budget_tokens: 6000  # per-section evidence cap in heuristic tokens
   section_max_tokens: 2048     # per-section generation cap
 
+verify:
+  enabled: true            # score every cited sentence against its cited chunks
+  floor: 0.0               # cross-encoder logit floor; calibrated on fixtures (DECISIONS.md)
+  max_rewrites: 2          # rewrite attempts before a failing sentence is dropped
+
 api:
   max_retries: 5           # backoff retries for 429/529
   retry_base_s: 1.0        # exponential backoff base (with jitter)

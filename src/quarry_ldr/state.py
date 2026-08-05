@@ -76,6 +76,7 @@ class Stage(enum.StrEnum):
     TRIAGE = "triage"
     GAP = "gap"
     SYNTHESIZE = "synthesize"
+    VERIFY = "verify"
     RENDER = "render"
 
 

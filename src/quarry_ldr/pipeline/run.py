@@ -49,6 +49,7 @@ from quarry_ldr.pipeline.synthesize import (
     synthesize_local,
 )
 from quarry_ldr.pipeline.triage import TriagedChunk, triage_chunks
+from quarry_ldr.pipeline.verify import VerificationSummary, verify_report
 from quarry_ldr.providers.anthropic_client import AnthropicProvider
 from quarry_ldr.providers.base import Provider
 from quarry_ldr.providers.local_client import LocalProvider
@@ -433,6 +434,26 @@ class Orchestrator:
                 # Resumed past synthesis: rebuild deterministic numbering.
                 build_evidence_corpus(evidence, citations)
 
+            # ---- VERIFY (claim-vs-cited-chunk entailment, every engine mode)
+            verify_summary = VerificationSummary()
+            if self.cfg.verify.enabled:
+                if owns_llama and llama_server is None:
+                    # A run resumed straight into VERIFY never entered the
+                    # loop's construction block; rewrites need the triage LLM.
+                    llama_server = LlamaServer(self.cfg, arbiter, Path(self.cfg.run.models_dir))
+                    local_llm = LocalLLM(llama_server.base_url)
+                verify_payload = await self._stage(
+                    store,
+                    run_id,
+                    Stage.VERIFY,
+                    0,
+                    lambda: self._compute_verify(
+                        draft, citations, evidence, reranker, llama_server, local_llm
+                    ),
+                )
+                draft = DraftReport.model_validate(verify_payload["draft"])
+                verify_summary = VerificationSummary.model_validate(verify_payload["summary"])
+
             # ---- RENDER
             render_payload = await self._stage(
                 store,
@@ -452,6 +473,10 @@ class Orchestrator:
                         **totals,
                         "n_chunks_after_dedup": n_kept_total,
                         "n_chunks_evidence": len(evidence),
+                        "n_claims_checked": verify_summary.total_claims,
+                        "n_claims_rewritten": verify_summary.rewritten,
+                        "n_claims_dropped": verify_summary.dropped,
+                        "mean_entailment_score": verify_summary.mean_entailment_score,
                     },
                 ),
             )
@@ -645,6 +670,33 @@ class Orchestrator:
         )
         return gap.model_dump(mode="json")
 
+    async def _compute_verify(
+        self,
+        draft: DraftReport,
+        citations: CitationIndex,
+        evidence: list[TriagedChunk],
+        reranker: Reranker,
+        llama_server: LlamaServer | None,
+        local_llm: LocalLLM | None,
+    ) -> dict[str, Any]:
+        assert local_llm is not None
+        chunk_lookup = {item.chunk.chunk_id: item.chunk for item in evidence}
+        verified, summary = await verify_report(
+            draft, citations, chunk_lookup, reranker, local_llm, llama_server, self.cfg
+        )
+        logger.info(
+            "verify_done",
+            total=summary.total_claims,
+            kept=summary.kept,
+            rewritten=summary.rewritten,
+            dropped=summary.dropped,
+            mean_score=round(summary.mean_entailment_score, 3),
+        )
+        return {
+            "draft": verified.model_dump(mode="json"),
+            "summary": summary.model_dump(mode="json"),
+        }
+
     async def _compute_synthesize(
         self,
         plan: ResearchPlan,
@@ -672,7 +724,7 @@ class Orchestrator:
         started_at: datetime,
         iterations: int,
         models_used: dict[str, str],
-        counts: dict[str, int],
+        counts: dict[str, Any],
     ) -> dict[str, Any]:
         manifest = RunManifest(
             run_id=run_id,

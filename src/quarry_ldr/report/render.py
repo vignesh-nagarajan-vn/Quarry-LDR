@@ -33,6 +33,10 @@ class RunManifest(BaseModel):
     n_chunks: int
     n_chunks_after_dedup: int
     n_chunks_evidence: int
+    n_claims_checked: int = 0
+    n_claims_rewritten: int = 0
+    n_claims_dropped: int = 0
+    mean_entailment_score: float = 0.0
     models: dict[str, str] = Field(default_factory=dict)
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
 

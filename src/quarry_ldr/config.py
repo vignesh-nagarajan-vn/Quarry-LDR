@@ -116,6 +116,12 @@ class SynthSettings(BaseModel):
     section_max_tokens: int = 2048
 
 
+class VerifySettings(BaseModel):
+    enabled: bool = True
+    floor: float = 0.0  # cross-encoder logit; calibrated on fixtures (DECISIONS.md)
+    max_rewrites: int = 2
+
+
 class ApiSettings(BaseModel):
     max_retries: int = 5
     retry_base_s: float = 1.0
@@ -151,6 +157,7 @@ class QuarryConfig(BaseSettings):
     retrieve: RetrieveSettings = Field(default_factory=RetrieveSettings)
     triage: TriageSettings = Field(default_factory=TriageSettings)
     synth: SynthSettings = Field(default_factory=SynthSettings)
+    verify: VerifySettings = Field(default_factory=VerifySettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
     report: ReportSettings = Field(default_factory=ReportSettings)
 

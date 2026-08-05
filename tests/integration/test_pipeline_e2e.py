@@ -87,6 +87,10 @@ class FakeReranker:
         )
         return scored[:top_k]
 
+    async def score_pairs(self, pairs: list[tuple[str, str]]) -> list[float]:
+        # VERIFY's entailment pass: fixture sections always pass the floor.
+        return [10.0 for _ in pairs]
+
 
 class FakeLocalLLM:
     """Triage fake. complete_with_usage also serves local-mode GAP calls,
@@ -296,10 +300,22 @@ async def test_single_pass_produces_cited_report(cfg: QuarryConfig) -> None:
             Stage.TRIAGE,
             Stage.GAP,
             Stage.SYNTHESIZE,
+            Stage.VERIFY,
             Stage.RENDER,
         }
         assert all(record.status is StageStatus.COMPLETED for record in stages)
     assert result.iterations == 1  # default gap script saturates immediately
+
+
+async def test_verify_disabled_skips_stage(cfg: QuarryConfig) -> None:
+    cfg.verify.enabled = False
+    with respx.mock:
+        _mock_corpus_routes()
+        result = await _orchestrator(cfg, FakeProvider()).research("no verify case")
+    async with RunStore(cfg.run.data_dir / "runs.db") as store:
+        stages = {record.stage for record in await store.stages(result.run_id)}
+    assert Stage.VERIFY not in stages
+    assert Stage.RENDER in stages
 
 
 async def test_robots_disallowed_url_never_fetched(cfg: QuarryConfig) -> None:

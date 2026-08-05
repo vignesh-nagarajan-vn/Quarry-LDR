@@ -55,15 +55,25 @@ class Reranker:
     def _unload_model(self, model: Any) -> None:
         del model
 
+    async def score_pairs(self, pairs: Sequence[tuple[str, str]]) -> list[float]:
+        """Score arbitrary (text, text) pairs, one batched pass.
+
+        Serves two callers: rerank's (query, chunk) scoring and the VERIFY
+        stage's (sentence, cited evidence) entailment signal.
+        """
+        if not pairs:
+            return []
+        async with self.arbiter.acquire(self.ARBITER_NAME) as model:
+            scores = await asyncio.to_thread(model.predict, list(pairs), batch_size=self.batch_size)
+        return [float(score) for score in scores]
+
     async def rerank(self, query: str, chunks: Sequence[Chunk], top_k: int) -> list[ScoredChunk]:
         """Score every chunk against the query, return the top_k best, sorted."""
         if not chunks:
             return []
-        async with self.arbiter.acquire(self.ARBITER_NAME) as model:
-            pairs = [(query, chunk.text) for chunk in chunks]
-            scores = await asyncio.to_thread(model.predict, pairs, batch_size=self.batch_size)
+        scores = await self.score_pairs([(query, chunk.text) for chunk in chunks])
         scored = [
-            ScoredChunk(chunk=chunk, score=float(score))
+            ScoredChunk(chunk=chunk, score=score)
             for chunk, score in zip(chunks, scores, strict=True)
         ]
         # list.sort with reverse=True stays stable: equal-score chunks keep

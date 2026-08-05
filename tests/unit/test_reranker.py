@@ -153,3 +153,23 @@ async def test_all_chunks_scored_even_when_top_k_smaller(
     await reranker.rerank("sand battery", chunks, top_k=2)
     # predict() must have been called once, over every candidate, not just top_k.
     assert fake.predict_calls == 1
+
+
+async def test_score_pairs_empty_short_circuits(cfg: QuarryConfig, arbiter: VramArbiter) -> None:
+    reranker, fake = make_reranker(cfg, arbiter)
+    assert await reranker.score_pairs([]) == []
+    assert fake.predict_calls == 0
+    assert arbiter.resident_models() == []
+
+
+async def test_score_pairs_returns_floats_and_passes_batch_size(
+    cfg: QuarryConfig, arbiter: VramArbiter
+) -> None:
+    cfg.gpu.rerank_batch_size = 8
+    reranker, fake = make_reranker(cfg, arbiter)
+    scores = await reranker.score_pairs(
+        [("sand battery", "sand battery text"), ("sand battery", "cats")]
+    )
+    assert all(isinstance(score, float) for score in scores)
+    assert scores[0] > scores[1]
+    assert fake.batch_sizes == [8]
