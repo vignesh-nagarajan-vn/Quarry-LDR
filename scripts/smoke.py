@@ -1,13 +1,16 @@
 """End-to-end smoke test on real infrastructure with a hard $2.00 cost cap.
 
-Runs the actual pipeline (real GPU, real SearXNG, real API) on a trivial
-topic, prints the ledger, checks the report has resolvable citations, and
-exits nonzero if anything is off. This is the one script the human runs at
-the end.
+Runs the actual pipeline (real GPU, real SearXNG, and the real API when the
+engine calls it) on a trivial topic, prints the ledger, checks the report
+has resolvable citations, and exits nonzero if anything is off. This is the
+one script the human runs at the end. ``--engine local`` is the $0
+rehearsal (``make smoke-local``); ``--engine assisted``/``premium`` spend
+real money under the cap.
 
 Preflight runs first and prints exact remediation for anything missing
-(exit 2): ANTHROPIC_API_KEY, docker + a reachable SearXNG, a verified GPU,
-and the local triage models. Only once every check passes does it run
+(exit 2): ANTHROPIC_API_KEY (skipped for the local engine, which makes zero
+API calls), docker + a reachable SearXNG, a verified GPU, and the local
+GGUFs the engine needs. Only once every check passes does it run
 ``Orchestrator(cfg).research(topic)``. A run that crosses the cost cap
 (``CostCapExceeded``) prints the ledger persisted so far and exits 3; any
 other failure to produce a report with resolvable citations exits 1.
@@ -15,14 +18,17 @@ other failure to produce a report with resolvable citations exits 1.
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import os
 import re
 import shutil
 import sys
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -37,6 +43,7 @@ from quarry_ldr.state import RunStore
 COST_CAP_USD = 2.00
 MAX_ITERATIONS = 1
 TOPIC = "what is a sand battery and how does one work"
+ENGINE_MODES = ("local", "assisted", "premium")
 
 DOCKER_REMEDIATION = (
     "install Docker Desktop (Windows/macOS) or Docker Engine (Linux), start it, "
@@ -55,10 +62,12 @@ class PreflightCheck:
     detail: str
 
 
-def build_config() -> QuarryConfig:
+def build_config(engine: str | None, max_cost: float | None) -> QuarryConfig:
     """Layered config with the smoke test's hard overrides applied."""
     cfg = load_config()
-    cfg.run.cost_cap_usd = COST_CAP_USD
+    if engine is not None:
+        cfg.engine.mode = cast(Literal["local", "assisted", "premium"], engine)
+    cfg.run.cost_cap_usd = max_cost if max_cost is not None else COST_CAP_USD
     cfg.run.max_iterations = MAX_ITERATIONS
     # Rehearsal breadth, matching the single-iteration depth cap: enough
     # sections to exercise cache write + reads + citations, not a full report.
@@ -71,16 +80,26 @@ def preflight(cfg: QuarryConfig) -> list[PreflightCheck]:
     checks: list[PreflightCheck] = []
 
     key = cfg.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
-    checks.append(
-        PreflightCheck(
-            "ANTHROPIC_API_KEY",
-            bool(key),
-            "found in environment"
-            if key
-            else "not set; fix: copy .env.example to .env and set "
-            "ANTHROPIC_API_KEY=sk-ant-... (or export it in the shell)",
+    if cfg.engine.mode == "local":
+        # Local runs make zero API calls; a missing key is not a failure.
+        checks.append(
+            PreflightCheck(
+                "ANTHROPIC_API_KEY",
+                True,
+                "found in environment" if key else "not needed for engine.mode=local",
+            )
         )
-    )
+    else:
+        checks.append(
+            PreflightCheck(
+                "ANTHROPIC_API_KEY",
+                bool(key),
+                "found in environment"
+                if key
+                else "not set; fix: copy .env.example to .env and set "
+                "ANTHROPIC_API_KEY=sk-ant-... (or export it in the shell)",
+            )
+        )
 
     if shutil.which("docker") is None:
         checks.append(
@@ -127,15 +146,20 @@ def preflight(cfg: QuarryConfig) -> list[PreflightCheck]:
         find_server_binary(models_dir)
     except LlamaServerError as exc:
         model_errors.append(str(exc))
-    try:
-        find_gguf(models_dir, cfg.models.triage_gguf_file)
-    except LlamaServerError as exc:
-        model_errors.append(str(exc))
+    needed = [cfg.models.triage_gguf_file]
+    if cfg.engine.mode != "premium":
+        # Local and assisted synthesis need the synth GGUF too.
+        needed.append(cfg.models.synth_gguf_file)
+    for gguf in needed:
+        try:
+            find_gguf(models_dir, gguf)
+        except LlamaServerError as exc:
+            model_errors.append(str(exc))
     checks.append(
         PreflightCheck(
             "local models",
             not model_errors,
-            "llama-server binary and triage GGUF present"
+            "llama-server binary and required GGUFs present"
             if not model_errors
             else "; ".join(model_errors),
         )
@@ -189,9 +213,24 @@ async def _run(cfg: QuarryConfig) -> tuple[int, Path | None]:
     return 0, Path(result.report_path)
 
 
-def main() -> int:
-    cfg = build_config()
-    print(f"topic: {TOPIC!r}")
+def main(argv: Sequence[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--engine",
+        choices=ENGINE_MODES,
+        default=None,
+        help="Override engine.mode for this run (default: the configured mode).",
+    )
+    parser.add_argument(
+        "--max-cost",
+        type=float,
+        default=None,
+        help=f"Override the hard cost cap in USD (default: {COST_CAP_USD:.2f}).",
+    )
+    args = parser.parse_args(argv)
+
+    cfg = build_config(args.engine, args.max_cost)
+    print(f"topic: {TOPIC!r}   engine: {cfg.engine.mode}")
     print(f"cost cap: ${cfg.run.cost_cap_usd:.2f}   max iterations: {cfg.run.max_iterations}")
 
     print("\npreflight:")

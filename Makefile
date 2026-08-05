@@ -8,7 +8,7 @@ else
 BOOTSTRAP = bash scripts/bootstrap.sh
 endif
 
-.PHONY: bootstrap test verify fmt lint searxng searxng-down smoke audit fixtures
+.PHONY: bootstrap test verify fmt lint searxng searxng-down smoke smoke-local audit fixtures
 
 bootstrap:
 	$(BOOTSTRAP)
@@ -38,6 +38,9 @@ searxng-down:
 
 smoke:
 	uv run python scripts/smoke.py
+
+smoke-local:
+	uv run python scripts/smoke.py --engine local
 
 audit:
 	uv run python scripts/pre_public_audit.py

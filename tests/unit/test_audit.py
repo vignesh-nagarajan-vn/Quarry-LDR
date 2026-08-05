@@ -354,20 +354,43 @@ def test_env_gitignored_wildcard_pattern(tmp_path: Path) -> None:
 def test_smoke_preflight_flags_missing_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     cfg = QuarryConfig(_env_file=None)
+    cfg.engine.mode = "premium"  # key required only when the engine calls the API
     checks = smoke.preflight(cfg)
     api_key_check = next(c for c in checks if c.name == "ANTHROPIC_API_KEY")
     assert api_key_check.ok is False
 
 
+def test_smoke_preflight_skips_api_key_for_local_engine(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    cfg = QuarryConfig(_env_file=None)
+    cfg.engine.mode = "local"
+    checks = smoke.preflight(cfg)
+    api_key_check = next(c for c in checks if c.name == "ANTHROPIC_API_KEY")
+    assert api_key_check.ok is True
+    assert "not needed" in api_key_check.detail
+
+
+def test_smoke_build_config_applies_engine_and_cost_overrides() -> None:
+    cfg = smoke.build_config("premium", 0.5)
+    assert cfg.engine.mode == "premium"
+    assert cfg.run.cost_cap_usd == 0.5
+    default_cfg = smoke.build_config(None, None)
+    assert default_cfg.run.cost_cap_usd == smoke.COST_CAP_USD
+
+
 def test_smoke_main_exits_2_when_preflight_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setattr(smoke, "build_config", lambda: QuarryConfig(_env_file=None))
+    monkeypatch.setattr(
+        smoke, "build_config", lambda engine, max_cost: QuarryConfig(_env_file=None)
+    )
     monkeypatch.setattr(
         smoke,
         "preflight",
         lambda cfg: [smoke.PreflightCheck("ANTHROPIC_API_KEY", False, "not set")],
     )
-    assert smoke.main() == 2
+    assert smoke.main([]) == 2
 
 
 def test_smoke_main_proceeds_past_preflight_when_all_checks_pass(
@@ -377,7 +400,9 @@ def test_smoke_main_proceeds_past_preflight_when_all_checks_pass(
     proceeds past preflight (never reachable in this key-less environment
     without also mocking the whole pipeline run, which smoke.py is
     deliberately never exercised against here)."""
-    monkeypatch.setattr(smoke, "build_config", lambda: QuarryConfig(_env_file=None))
+    monkeypatch.setattr(
+        smoke, "build_config", lambda engine, max_cost: QuarryConfig(_env_file=None)
+    )
     monkeypatch.setattr(
         smoke,
         "preflight",
@@ -391,7 +416,7 @@ def test_smoke_main_proceeds_past_preflight_when_all_checks_pass(
     # it to raise proves control flow actually left the preflight branch.
     monkeypatch.setattr(smoke, "_run", _boom)
     with pytest.raises(AssertionError):
-        smoke.main()
+        smoke.main([])
 
 
 def test_validate_citations_passes_when_all_resolve() -> None:
