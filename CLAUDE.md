@@ -4,7 +4,7 @@ Operating instructions for Claude Code sessions in this repo. Terse on purpose.
 
 ## Purpose
 
-Quarry-LDR turns a research topic into a cited markdown report. A local GPU compresses ~750K tokens of scraped web text into ~60K tokens of deduplicated, reranked evidence; the Anthropic API does planning, gap analysis, and synthesis on that small payload. Measured cost: $1.36 to $2.88 per report on the claude 5 models (README pricing section has the breakdown).
+Quarry-LDR turns a research topic into a cited report (markdown plus a branded PDF). A local GPU compresses ~750K tokens of scraped web text into ~60K tokens of deduplicated, reranked evidence, and `engine.mode` decides who reasons over it: `local` (default, Qwen3 8B/4B via llama-server, $0.00, no API key), `assisted` (local draft, Haiku gap checks and polish), or `premium` (Claude plans, audits, writes; measured $1.36 to $2.88 per report). VERIFY scores every cited sentence against its cited chunks in every mode.
 
 ## Architecture map
 
@@ -15,21 +15,25 @@ Quarry-LDR turns a research topic into a cited markdown report. A local GPU comp
 | `src/quarry_ldr/state.py` | SQLite run store; every stage transition is a row; resume |
 | `src/quarry_ldr/ledger.py` | Date-aware pricing, cost from API `usage` blocks only |
 | `src/quarry_ldr/gpu/arbiter.py` | All GPU residency: hard budget, LRU eviction, async lock |
-| `src/quarry_ldr/gpu/` | embedder, reranker, llama-server lifecycle + local client |
+| `src/quarry_ldr/gpu/` | embedder, reranker, llama-server lifecycle (triage + synth specs) + local client |
 | `src/quarry_ldr/ingest/` | search (SearXNG), fetch (robots, rate limit, cache), extract, chunk, dedup |
 | `src/quarry_ldr/index/` | LanceDB store with versioned schema |
 | `src/quarry_ldr/pipeline/` | Stage functions + orchestrator state machine (`run.py`) |
-| `src/quarry_ldr/providers/anthropic_client.py` | The only API surface: retries, caching, batch, ledger hooks |
+| `src/quarry_ldr/pipeline/verify.py` | VERIFY: cross-encoder entailment gate + 4B rewrite-or-drop |
+| `src/quarry_ldr/providers/base.py` | `Provider` protocol both backends satisfy; cache-prefix rules |
+| `src/quarry_ldr/providers/anthropic_client.py` | The API backend: retries, caching, batch, ledger hooks |
+| `src/quarry_ldr/providers/local_client.py` | The llama-server backend: same protocol, $0 ledger rows |
 | `src/quarry_ldr/report/` | Render + citations; every claim resolves to URL + chunk anchor |
+| `src/quarry_ldr/report/pdf.py`, `charts.py` | Branded Typst PDF + matplotlib run charts, fail-soft |
 | `scripts/` | bootstrap, model download, GPU verify, VRAM bench, fixtures, audit, smoke |
 
 ## Invariants, never break these
 
 1. All GPU model access goes through the arbiter. No exceptions, no direct `.to("cuda")`.
-2. The ledger is updated from the API `usage` block, never estimated from text length.
+2. The ledger is updated from usage blocks only, never estimated from text length: the API's `usage` for Claude calls, llama-server's OpenAI-compatible `usage` at zero price for `local/` model ids.
 3. Prompt cache prefixes are byte stable, asserted by hash; drift raises, it does not pay.
-4. Every claim in a report carries a citation that resolves to a URL and chunk offsets.
-5. Pipeline stages are batched by model: embed everything, then rerank, then triage. Never interleave GPU models.
+4. Every claim in a report carries a citation that resolves to a URL and chunk offsets, and VERIFY gates it against the cited text before render.
+5. Pipeline stages are batched by model: embed everything, then rerank, then triage. Never interleave GPU models; the synth 8B is resident only alone.
 6. No secrets, personal paths, or real scraped content in the repo or its history. Fixtures are synthetic.
 7. The default test selection runs on CPU with no network and no API key, always.
 8. Measured-vs-declared VRAM corrections reject a measurement under 25 percent of the declared footprint as implausible and keep the declared value (Windows WDDM hides child-process VRAM from `mem_get_info`).
@@ -45,7 +49,8 @@ Quarry-LDR turns a research topic into a cited markdown report. A local GPU comp
 | `make lint` | ruff check + mypy |
 | `make searxng` | Start SearXNG in Docker (remediation message if Docker absent) |
 | `make searxng-down` | Stop the SearXNG container |
-| `make smoke` | Real end-to-end run, $2.00 cap, prints ledger |
+| `make smoke` | Real end-to-end run on the configured engine, $2.00 cap, prints ledger |
+| `make smoke-local` | The same rehearsal forced to the local engine: $0, no API key |
 | `make audit` | Pre-public go/no-go: history secrets, paths, fixtures, em dashes |
 | `make fixtures` | Regenerate the synthetic corpus deterministically |
 
@@ -72,7 +77,7 @@ Any change touching an API call path must state the token and dollar impact in t
 1. Add the stage to `Stage` in `state.py` in execution order.
 2. Write the stage function in `pipeline/` taking injected components, returning pydantic models.
 3. Wire it into the orchestrator with `start_stage` / `complete_stage` checkpoints.
-4. If it calls the API: route through `AnthropicProvider`, pass `stage=` for the ledger.
+4. If it calls a model backend: type against the `Provider` protocol (never a concrete client), pass `stage=` for the ledger; the orchestrator picks the backend per `engine.mode`.
 5. If it touches the GPU: register a `ModelSpec`, access only via `arbiter.acquire`.
 6. Add unit tests against fixtures; update `quarry inspect` expectations.
 7. Update the docs/Architecture.md diagram and this map if a new module appeared.
