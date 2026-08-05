@@ -38,10 +38,10 @@ in the venv). First command after it exits: `uv sync`.
 3. Assisted live smoke, only with the user's explicit go-ahead (hard cap
    $0.50): `uv run quarry research "<topic>" --engine assisted --max-cost 0.5`;
    record the measured cost in DECISIONS.md and the M16 entry.
-4. M18 per the plan: README Title Case headings + a License and
-   Acknowledgements section crediting
-   github.com/LearningCircuit/local-deep-research (MIT, inspiration only,
-   no code reuse), engine cost table, updated mermaid figures,
+4. M18 per the plan. Already landed early (commit cccfac8): README Title
+   Case, engine table, VERIFY/PDF figure, status note, and the License and
+   Acknowledgements section crediting local-deep-research. Still to do:
+   fill the README's "to be measured" assisted cost and any final numbers,
    Architecture/Troubleshooting/CLAUDE.md updates, `scripts/smoke.py
    --engine` + a `smoke-local` Makefile target, pyproject version 1.0.0rc1,
    then `make verify` and `make audit`.
