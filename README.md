@@ -8,7 +8,7 @@
 
 <sub><b>Language & AI</b></sub>
 
-<img src="https://img.shields.io/badge/Python_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12"> <img src="https://img.shields.io/badge/PyTorch_cu128-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch cu128"> <img src="https://img.shields.io/badge/CUDA_12.8-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA 12.8"> <img src="https://img.shields.io/badge/Claude_API-D97757?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude API"> <img src="https://img.shields.io/badge/Hugging_Face-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black" alt="Hugging Face"> <img src="https://img.shields.io/badge/llama.cpp-000000?style=for-the-badge" alt="llama.cpp"> <img src="https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy">
+<img src="https://img.shields.io/badge/Python_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12"> <img src="https://img.shields.io/badge/PyTorch_cu128-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch cu128"> <img src="https://img.shields.io/badge/CUDA_12.8-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA 12.8"> <img src="https://img.shields.io/badge/Claude_API-D97757?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude API"> <img src="https://img.shields.io/badge/Hugging_Face-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black" alt="Hugging Face"> <img src="https://img.shields.io/badge/llama.cpp-000000?style=for-the-badge" alt="llama.cpp"> <img src="https://img.shields.io/badge/Qwen3-615CED?style=for-the-badge" alt="Qwen3"> <img src="https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy">
 
 <sub><b>Data & Infrastructure</b></sub>
 
@@ -19,8 +19,6 @@
 <img src="https://img.shields.io/badge/uv-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv"> <img src="https://img.shields.io/badge/Typer-000000?style=for-the-badge&logo=typer&logoColor=white" alt="Typer"> <img src="https://img.shields.io/badge/Ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black" alt="Ruff"> <img src="https://img.shields.io/badge/mypy-2A6DB2?style=for-the-badge" alt="mypy"> <img src="https://img.shields.io/badge/pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest"> <img src="https://img.shields.io/badge/GNU_Make-A42E2B?style=for-the-badge&logo=gnu&logoColor=white" alt="GNU Make"> <img src="https://img.shields.io/badge/GitHub_Actions-2671E5?style=for-the-badge&logo=githubactions&logoColor=white" alt="GitHub Actions">
 
 </div>
-
-> **Status:** `main` is the v1 local-first line, at 1.0.0rc1. The v0 hybrid pipeline is archived on [`archive/v0-hybrid-api`](https://github.com/vignesh-nagarajan-vn/Quarry-LDR/tree/archive/v0-hybrid-api) and released as [v0.9.0-beta](https://github.com/vignesh-nagarajan-vn/Quarry-LDR/releases/tag/v0.9.0-beta).
 
 ## What It Is
 
@@ -38,6 +36,13 @@ The `engine.mode` setting decides who does the reasoning:
 Every claim in a report carries a citation that resolves to a source URL and chunk offsets, and must survive an entailment check against the cited text before render: sentences the evidence does not support are rewritten or dropped. Reports ship as markdown plus a branded PDF with run charts. Every run is checkpointed to SQLite, so an interrupted run resumes from its last completed stage. Every API call lands in a cost ledger computed from the API's own usage blocks, and local model calls are ledgered the same way at zero price, so the $0.00 is enforced, not asserted.
 
 The premium numbers come from the v0 live validation runs; [docs/FirstRunReport.md](docs/FirstRunReport.md) breaks down where every cent went and what the failures taught. Everything runs end to end on one laptop card, an NVIDIA RTX 5060 Mobile with 8 GB of VRAM, where the 8B writer generates at a measured 35.3 tokens per second.
+
+Two lines of the project exist, one per design generation:
+
+| Branch | Version | What it is |
+| --- | --- | --- |
+| [`main`](https://github.com/vignesh-nagarajan-vn/Quarry-LDR) | 1.0.0rc1 | The v1 local-first line: your GPU plans, writes, and verifies by default at $0.00 in API spend, with `assisted` and `premium` as paid engine tiers and a branded PDF beside every report |
+| [`archive/v0-hybrid-api`](https://github.com/vignesh-nagarajan-vn/Quarry-LDR/tree/archive/v0-hybrid-api) | [v0.9.0-beta](https://github.com/vignesh-nagarajan-vn/Quarry-LDR/releases/tag/v0.9.0-beta) | The original hybrid design, preserved as released: the local GPU compresses the web and Claude does all the reasoning, at a measured $1.36 to $2.88 per report |
 
 ## How It Works
 
@@ -73,7 +78,8 @@ The report and its PDF land in `data/reports/`, with a cost ledger and a run man
 
 ## Documentation
 
-- [docs/Architecture.md](docs/Architecture.md): pipeline diagram, VRAM arbiter, hardware design target, full configuration reference, API pricing the ledger uses.
+- [pdf-reports/](pdf-reports/): sample PDF reports straight from the pipeline, one local ($0.00) and one assisted ($0.02), with the numbers behind each.
+- [docs/Architecture.md](docs/Architecture.md): pipeline diagram, engine modes, VRAM arbiter, hardware design target, full configuration reference, API pricing the ledger uses.
 - [docs/FirstRunReport.md](docs/FirstRunReport.md): the live validation story; measured costs, the bugs only production could find, and what each dollar bought.
 - [docs/ExampleReport.md](docs/ExampleReport.md): a real report the pipeline produced during validation, on dealer quoting as a performative fixed-point problem; $2.88 of API spend, verbatim except punctuation.
 - [docs/Troubleshooting.md](docs/Troubleshooting.md): symptoms, causes, and exact fixes.
@@ -89,4 +95,4 @@ Read [CLAUDE.md](CLAUDE.md) for the invariants (they are enforced by tests) and 
 
 MIT. See [LICENSE](LICENSE).
 
-The v1 local-first direction is inspired by [local-deep-research](https://github.com/LearningCircuit/local-deep-research) (MIT), which showed how far a fully local research pipeline can go; Quarry-LDR shares no code with it and takes a framework-free path. The pipeline stands on SearXNG, llama.cpp, Qwen's open models, BAAI's embedding and reranker models, trafilatura, LanceDB, Typst, and the Anthropic API for its paid engines.
+The v1 local-first direction is inspired by [local-deep-research](https://github.com/LearningCircuit/local-deep-research) (MIT), which showed how far a fully local research pipeline can go; Quarry-LDR shares no code with it and takes a framework-free path. Where Quarry-LDR goes further is rigor: every cited sentence must survive a cross-encoder entailment check before render, the $0.00 default is enforced by a ledger that meters local calls exactly like API calls, and the whole stack, from search through an 8B writer to verification, fits one 8 GB laptop card under a hard VRAM budget.
