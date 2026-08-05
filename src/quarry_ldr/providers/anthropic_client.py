@@ -10,7 +10,6 @@ Rules enforced here, not merely documented:
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from collections.abc import AsyncIterator
@@ -29,22 +28,11 @@ from tenacity import (
 from quarry_ldr.config import QuarryConfig
 from quarry_ldr.ledger import Ledger, TokenUsage
 from quarry_ldr.logging import get_logger
+from quarry_ldr.providers.base import CachePrefixError, CompletionResult, hash_corpus
 
 logger = get_logger(component="anthropic")
 
 T = TypeVar("T", bound=BaseModel)
-
-
-class CompletionResult(BaseModel):
-    text: str
-    usage: TokenUsage
-    model: str
-    stop_reason: str | None = None
-
-
-class CachePrefixError(Exception):
-    """A cached-corpus call tried to send a different prefix than the one the
-    cache was primed with. This would silently cost full input price."""
 
 
 class MissingApiKeyError(Exception):
@@ -53,11 +41,6 @@ class MissingApiKeyError(Exception):
             "ANTHROPIC_API_KEY is not set. Copy .env.example to .env and paste "
             "your key. Tests and fixture runs never need it."
         )
-
-
-def hash_corpus(text: str) -> str:
-    """SHA-256 of the exact corpus bytes; the cache-prefix identity."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 class BatchRequest(BaseModel):

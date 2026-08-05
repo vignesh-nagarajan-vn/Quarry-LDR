@@ -4,7 +4,9 @@ Pricing is date-aware because Sonnet 5 is on introductory pricing ($2/$10)
 through 2026-08-31, after which it becomes $3/$15. Costs are always computed
 from the ``usage`` block the API returned; Claude 4.7+ tokenizers produce
 roughly 30 percent more tokens for the same text than older ones, so
-character-count estimates are banned by design.
+character-count estimates are banned by design. Local llama-server calls
+follow the same rule: recorded from the server's usage block, priced at
+zero under a ``local/`` model id.
 """
 
 from __future__ import annotations
@@ -49,6 +51,12 @@ PRICING: dict[str, list[tuple[date, ModelPrice]]] = {
 
 BATCH_DISCOUNT = 0.5
 
+# Local models (llama-server GGUFs) are free by definition; their entries
+# still carry real token counts from the server usage block so local volume
+# stays visible next to API spend.
+LOCAL_MODEL_PREFIX = "local/"
+_LOCAL_PRICE = ModelPrice(input=0.0, output=0.0, cache_write_1h=0.0, cache_read=0.0)
+
 
 class UnknownModelError(Exception):
     """Raised when a cost is recorded for a model with no pricing entry."""
@@ -86,7 +94,13 @@ class LedgerSummary(BaseModel):
 
 
 def price_for(model: str, on: date) -> ModelPrice:
-    """Resolve the price row effective for ``model`` on date ``on``."""
+    """Resolve the price row effective for ``model`` on date ``on``.
+
+    ``local/``-prefixed models are free; anything else must have a PRICING
+    entry or :class:`UnknownModelError` is raised.
+    """
+    if model.startswith(LOCAL_MODEL_PREFIX):
+        return _LOCAL_PRICE
     try:
         rows = PRICING[model]
     except KeyError:

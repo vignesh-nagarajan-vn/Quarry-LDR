@@ -146,3 +146,26 @@ def test_to_markdown_contains_totals_and_rows() -> None:
     assert "Total: $0.0600" in md
     assert "cap $1.00" in md
     assert "Per iteration" in md
+
+
+def test_local_prefix_prices_at_zero_with_real_counts() -> None:
+    ledger = Ledger(cost_cap_usd=0.01)
+    entry = ledger.record(
+        "local/qwen3-8b-q4.gguf",
+        TokenUsage(input_tokens=500_000, output_tokens=50_000),
+        stage="synthesize",
+        on=RUN_DATE,
+    )
+    # Real token counts, zero dollars, and the cap never trips.
+    assert entry.cost_usd == 0.0
+    assert ledger.total_cost_usd == 0.0
+    assert entry.usage.input_tokens == 500_000
+    assert "local/qwen3-8b-q4.gguf" in ledger.to_markdown()
+
+
+def test_local_prefix_is_exact_not_substring() -> None:
+    with pytest.raises(UnknownModelError):
+        price_for("localmodel", RUN_DATE)
+    with pytest.raises(UnknownModelError):
+        price_for("local", RUN_DATE)
+    assert price_for("local/x.gguf", RUN_DATE).input == 0.0

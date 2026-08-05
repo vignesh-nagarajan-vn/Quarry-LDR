@@ -24,6 +24,7 @@ from pydantic import BaseModel, ValidationError
 
 from quarry_ldr.config import QuarryConfig
 from quarry_ldr.gpu.arbiter import ModelSpec, VramArbiter
+from quarry_ldr.ledger import TokenUsage
 from quarry_ldr.logging import get_logger
 
 logger = get_logger(component="local_llm")
@@ -219,11 +220,39 @@ class LocalLLM:
         max_tokens: int = 512,
         temperature: float = 0.0,
         json_schema: dict[str, object] | None = None,
+        system: str | None = None,
     ) -> str:
         """Single-turn completion; json_schema enables grammar-constrained output."""
+        text, _, _ = await self.complete_with_usage(
+            prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            json_schema=json_schema,
+            system=system,
+        )
+        return text
+
+    async def complete_with_usage(
+        self,
+        prompt: str,
+        max_tokens: int = 512,
+        temperature: float = 0.0,
+        json_schema: dict[str, object] | None = None,
+        system: str | None = None,
+    ) -> tuple[str, TokenUsage, str | None]:
+        """``complete`` plus the server usage block and finish reason.
+
+        llama-server reports OpenAI-shaped usage (prompt_tokens,
+        completion_tokens); a missing block records zeros rather than
+        raising, so accounting degrades gracefully instead of failing a run.
+        """
+        messages: list[dict[str, str]] = []
+        if system is not None:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
         payload: dict[str, Any] = {
             "model": "local",
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
@@ -233,8 +262,15 @@ class LocalLLM:
                 "json_schema": {"name": "response", "schema": json_schema},
             }
         data = await self._post(payload)
-        content = data["choices"][0]["message"]["content"]
-        return str(content)
+        choice = data["choices"][0]
+        raw_usage = data.get("usage") or {}
+        usage = TokenUsage(
+            input_tokens=int(raw_usage.get("prompt_tokens", 0)),
+            output_tokens=int(raw_usage.get("completion_tokens", 0)),
+        )
+        finish_reason = choice.get("finish_reason")
+        text = str(choice["message"]["content"])
+        return text, usage, None if finish_reason is None else str(finish_reason)
 
     async def complete_typed(
         self,
