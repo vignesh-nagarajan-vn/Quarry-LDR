@@ -497,6 +497,10 @@ class Orchestrator:
                 verify_summary = VerificationSummary.model_validate(verify_payload["summary"])
 
             # ---- RENDER
+            # Unique chunks, not evidence items: one chunk can serve several
+            # sub-questions, and the funnel chart must never show more
+            # evidence than survived dedup.
+            n_evidence_chunks = len({item.chunk.chunk_id for item in evidence})
             render_payload = await self._stage(
                 store,
                 run_id,
@@ -515,7 +519,7 @@ class Orchestrator:
                     {
                         **totals,
                         "n_chunks_after_dedup": n_kept_total,
-                        "n_chunks_evidence": len(evidence),
+                        "n_chunks_evidence": n_evidence_chunks,
                         "n_claims_checked": verify_summary.total_claims,
                         "n_claims_rewritten": verify_summary.rewritten,
                         "n_claims_dropped": verify_summary.dropped,
@@ -533,7 +537,7 @@ class Orchestrator:
                 iterations=iteration + 1,
                 n_sources=n_sources,
                 n_chunks_indexed=index_payload["n_total"],
-                n_chunks_evidence=len(evidence),
+                n_chunks_evidence=n_evidence_chunks,
             )
         except Exception:
             await store.set_run_status(run_id, RunStatus.FAILED)

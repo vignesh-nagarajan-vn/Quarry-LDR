@@ -146,7 +146,9 @@ def plan_sections(plan: ResearchPlan, cfg: QuarryConfig) -> list[SectionBrief]:
         questions = "; ".join(by_id[sq_id].question for sq_id in group)
         title = by_id[group[0]].question.rstrip("?")
         if len(title) > 70:
-            title = title[:67] + "..."
+            # Cut at a word boundary; a mid-word chop with a "..." marker
+            # reads broken in headings and the PDF contents page.
+            title = title[:70].rsplit(" ", 1)[0]
         briefs.append(
             SectionBrief(
                 title=title,
