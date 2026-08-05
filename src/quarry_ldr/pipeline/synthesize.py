@@ -16,12 +16,13 @@ sub-questions in descending rerank order).
 from __future__ import annotations
 
 import re
-from collections import deque
+from collections import Counter, deque
 
 from pydantic import BaseModel, Field
 
 from quarry_ldr.config import QuarryConfig
 from quarry_ldr.ingest.chunk import HeuristicTokenCounter, TokenCounter
+from quarry_ldr.ledger import CostCapExceeded
 from quarry_ldr.logging import get_logger
 from quarry_ldr.pipeline.plan import ResearchPlan
 from quarry_ldr.pipeline.triage import TriagedChunk
@@ -372,3 +373,71 @@ async def synthesize_local(
     # No single shared prefix exists on the local path; an empty hash keeps
     # anything downstream from mistaking it for a cache key.
     return DraftReport(topic=plan.topic, sections=sections, corpus_hash="")
+
+
+_POLISH_DELIMITER = re.compile(r"<!--Q-SECTION:(.*?)-->")
+
+POLISH_SYSTEM = (
+    "You polish research report drafts. Improve prose quality: smooth "
+    "transitions, tighten wording, fix grammar and repetition. Hard rules:\n"
+    "- Never add, remove, renumber, or relocate citation markers like [3]; "
+    "every marker stays attached to the claim it supports.\n"
+    "- Never add or remove facts.\n"
+    "- Keep every <!--Q-SECTION:...--> delimiter line exactly as it is, in "
+    "place, starting the reply with the first delimiter.\n"
+    "- Keep markdown structure (### subsections, lists).\n"
+    "Return the full polished document and nothing else."
+)
+
+
+def _marker_multiset(text: str) -> Counter[int]:
+    return Counter(int(match.group(1)) for match in CITATION_MARKER.finditer(text))
+
+
+async def polish_draft(draft: DraftReport, provider: Provider, cfg: QuarryConfig) -> DraftReport:
+    """One models.assisted call over the assembled draft (assisted mode only).
+
+    The citation-marker multiset must survive exactly and the section
+    delimiters must round-trip in order with nothing before the first one;
+    any violation, or any API failure short of the cost cap, discards the
+    polish with a warning and the local draft stands. Polish is an
+    enhancement, never a run-killer.
+    """
+    delimited: list[str] = []
+    for section in draft.sections:
+        delimited.append(f"<!--Q-SECTION:{section.title}-->")
+        delimited.append(section.markdown)
+    assembled = "\n\n".join(delimited)
+    before = _marker_multiset(assembled)
+    try:
+        result = await provider.complete(
+            model=cfg.models.assisted,
+            system=POLISH_SYSTEM,
+            prompt=assembled,
+            max_tokens=8192,
+            stage="polish",
+        )
+    except CostCapExceeded:
+        raise  # budget enforcement always propagates
+    except Exception as exc:
+        logger.warning("polish_failed", error=str(exc)[:200])
+        return draft
+
+    text = result.text.strip()
+    if _marker_multiset(text) != before:
+        logger.warning("polish_discarded", reason="citation markers changed")
+        return draft
+    parts = _POLISH_DELIMITER.split(text)
+    prefix, titles, bodies = parts[0], parts[1::2], parts[2::2]
+    if prefix.strip() or titles != [section.title for section in draft.sections]:
+        logger.warning("polish_discarded", reason="section delimiters did not round-trip")
+        return draft
+    logger.info("polish_applied", n_sections=len(titles))
+    return DraftReport(
+        topic=draft.topic,
+        sections=[
+            ReportSection(title=title, markdown=body.strip())
+            for title, body in zip(titles, bodies, strict=True)
+        ],
+        corpus_hash=draft.corpus_hash,
+    )

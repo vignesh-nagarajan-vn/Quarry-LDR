@@ -178,14 +178,27 @@ class FakeProvider:
         self.fail_on_synthesize = fail_on_synthesize
         self.gap_script = gap_script or [GapAnalysis(saturated=True, rationale="default")]
         self.gap_calls = 0
+        self.gap_models: list[str] = []
         self.synth_calls = 0
         self.corpora: list[str] = []
+        self.polish_models: list[str] = []
+
+    async def complete(self, **kwargs: Any) -> CompletionResult:
+        # The assisted polish pass: an identity polish keeps the guards happy.
+        self.polish_models.append(kwargs["model"])
+        return CompletionResult(
+            text=kwargs["prompt"],
+            usage=TokenUsage(input_tokens=10, output_tokens=10),
+            model=kwargs["model"],
+            stop_reason="end_turn",
+        )
 
     async def complete_typed(self, **kwargs: Any) -> Any:
         schema = kwargs["schema"]
         if schema is GapAnalysis:
             gap = self.gap_script[min(self.gap_calls, len(self.gap_script) - 1)]
             self.gap_calls += 1
+            self.gap_models.append(kwargs["model"])
             return gap
         assert schema is _PlanPayload
         return _PlanPayload.model_validate(
@@ -462,3 +475,37 @@ async def test_local_engine_runs_with_no_api_and_zero_cost(cfg: QuarryConfig) ->
             assert cast(float, entry["cost_usd"]) == 0.0
         stages = {record.stage for record in await store.stages(result.run_id)}
         assert Stage.GAP in stages  # the loop's gap check ran locally too
+
+
+async def test_assisted_engine_routes_gap_and_polish_to_the_cheap_model(
+    cfg: QuarryConfig,
+) -> None:
+    """Assisted: local plan/draft, models.assisted for gap checks + polish."""
+    cfg.engine.mode = "assisted"
+    cfg.run.max_iterations = 2  # force one real gap call before the cap
+    cfg.fetch.per_domain_rps = 500.0
+    synth_fake = FakeSynthLLM()
+    api_provider = FakeProvider()
+    orchestrator = Orchestrator(
+        cfg,
+        searx=cast(SearxClient, FakeSearx()),
+        fetcher=Fetcher(cfg.fetch),
+        embedder=cast(Embedder, FakeEmbedder()),
+        reranker=cast(Reranker, FakeReranker()),
+        local_llm=cast(LocalLLM, FakeLocalLLM()),
+        synth_llm=cast(LocalLLM, synth_fake),
+        provider=api_provider,
+    )
+    with respx.mock:
+        _mock_corpus_routes()
+        result = await orchestrator.research("the vesterholm sand battery pilot, assisted")
+
+    # Gap checks and the polish pass both ran on models.assisted; plan and
+    # section drafting stayed on the local synth fake.
+    assert api_provider.gap_models == [cfg.models.assisted]
+    assert api_provider.polish_models == [cfg.models.assisted]
+    assert api_provider.synth_calls == 0  # cached-corpus synthesis never runs
+    assert synth_fake.calls >= 11  # 1 plan + 10 sections drafted locally
+    report = Path(result.report_path).read_text(encoding="utf-8")
+    assert re.search(r"citing \[\d+\]", report)
+    assert "## References" in report

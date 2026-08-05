@@ -45,6 +45,7 @@ from quarry_ldr.pipeline.retrieve import rerank_candidates, retrieve_candidates
 from quarry_ldr.pipeline.synthesize import (
     DraftReport,
     build_evidence_corpus,
+    polish_draft,
     synthesize,
     synthesize_local,
 )
@@ -217,12 +218,18 @@ class Orchestrator:
 
         # ---- Engine routing: which backend serves PLAN/GAP/SYNTHESIZE.
         mode = self.cfg.engine.mode
-        if mode == "assisted":
-            raise NotImplementedError("engine.mode=assisted lands in M16; use local or premium")
         synth_server: LlamaServer | None = self._ov.get("synth_server")
         synth_llm: LocalLLM | None = self._ov.get("synth_llm")
         owns_synth = synth_server is None and synth_llm is None
-        if mode == "local":
+        if mode == "premium":  # the v0 hybrid behavior, unchanged
+            reasoning_provider: Provider = provider
+            models_used = {
+                "engine": mode,
+                "plan": self.cfg.models.plan,
+                "gap": self.cfg.models.gap,
+                "synthesize": self.cfg.models.synthesize,
+            }
+        else:  # local and assisted both plan and draft on the synth model
             if owns_synth:
                 synth_server = LlamaServer(
                     self.cfg,
@@ -233,23 +240,24 @@ class Orchestrator:
                 synth_llm = LocalLLM(synth_server.base_url)
             assert synth_llm is not None
             synth_label = f"local/{self.cfg.models.synth_gguf_file}"
-            reasoning_provider: Provider = LocalProvider(
+            reasoning_provider = LocalProvider(
                 ledger, synth_llm, synth_label, max_retries=self.cfg.synth.max_retries
             )
-            models_used = {
-                "engine": mode,
-                "plan": synth_label,
-                "gap": f"local/{self.cfg.models.triage_gguf_file}",
-                "synthesize": synth_label,
-            }
-        else:  # premium: the v0 hybrid behavior, unchanged
-            reasoning_provider = provider
-            models_used = {
-                "engine": mode,
-                "plan": self.cfg.models.plan,
-                "gap": self.cfg.models.gap,
-                "synthesize": self.cfg.models.synthesize,
-            }
+            if mode == "local":
+                models_used = {
+                    "engine": mode,
+                    "plan": synth_label,
+                    "gap": f"local/{self.cfg.models.triage_gguf_file}",
+                    "synthesize": synth_label,
+                }
+            else:  # assisted: Haiku-class gap checks and one polish pass
+                models_used = {
+                    "engine": mode,
+                    "plan": synth_label,
+                    "gap": self.cfg.models.assisted,
+                    "synthesize": f"{synth_label}+polish:{self.cfg.models.assisted}",
+                }
+        polish_provider: Provider | None = provider if mode == "assisted" else None
 
         try:
             # ---- PLAN
@@ -384,9 +392,15 @@ class Orchestrator:
                         max_retries=self.cfg.triage.max_retries,
                     )
                     gap_server = llama_server
+                    gap_model: str | None = None
+                elif mode == "assisted":
+                    gap_provider = provider
+                    gap_server = None
+                    gap_model = self.cfg.models.assisted
                 else:
                     gap_provider = provider
                     gap_server = None
+                    gap_model = None
                 gap_payload = await self._stage(
                     store,
                     run_id,
@@ -399,6 +413,7 @@ class Orchestrator:
                         gap_provider,
                         it,
                         gap_server,
+                        gap_model,
                     ),
                 )
                 persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
@@ -425,7 +440,7 @@ class Orchestrator:
                 Stage.SYNTHESIZE,
                 0,
                 lambda: self._compute_synthesize(
-                    plan, evidence, reasoning_provider, citations, synth_server
+                    plan, evidence, reasoning_provider, citations, synth_server, polish_provider
                 ),
             )
             persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
@@ -657,11 +672,12 @@ class Orchestrator:
         provider: Provider,
         iteration: int,
         llama_server: LlamaServer | None = None,
+        model: str | None = None,
     ) -> dict[str, Any]:
         if llama_server is not None:
             # A replayed TRIAGE never spawned the server; gap needs it live.
             await llama_server.start()
-        gap = await analyze_gaps(plan, evidence, provider, self.cfg, iteration)
+        gap = await analyze_gaps(plan, evidence, provider, self.cfg, iteration, model=model)
         logger.info(
             "gap_done",
             saturated=gap.saturated,
@@ -704,6 +720,7 @@ class Orchestrator:
         provider: Provider,
         citations: CitationIndex,
         synth_server: LlamaServer | None = None,
+        polish_provider: Provider | None = None,
     ) -> dict[str, Any]:
         if synth_server is not None:
             await synth_server.start()
@@ -711,6 +728,10 @@ class Orchestrator:
             draft = await synthesize(plan, evidence, provider, self.cfg, citations)
         else:
             draft = await synthesize_local(plan, evidence, provider, self.cfg, citations)
+            if polish_provider is not None:
+                # Assisted mode: one guarded models.assisted pass over the
+                # assembled draft, before VERIFY judges the final prose.
+                draft = await polish_draft(draft, polish_provider, self.cfg)
         logger.info("synthesize_done", n_sections=len(draft.sections), engine=self.cfg.engine.mode)
         return {"draft": draft.model_dump(mode="json"), "corpus_hash": draft.corpus_hash}
 
