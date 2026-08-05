@@ -2,7 +2,7 @@
 
 # Quarry-LDR
 
-**Local deep research: a local GPU compresses the web into dense evidence, Claude reasons over it.**
+**Local deep research: a local GPU compresses the web into dense evidence and, by default, writes and verifies the cited report itself. Claude remains an optional engine.**
 
 *Quarry, as in the place you dig raw material out of; LDR for local deep research.*
 
@@ -12,7 +12,7 @@
 
 <sub><b>Data & Infrastructure</b></sub>
 
-<img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"> <img src="https://img.shields.io/badge/SearXNG-29ABE2?style=for-the-badge&logo=searxng&logoColor=white" alt="SearXNG"> <img src="https://img.shields.io/badge/LanceDB-333333?style=for-the-badge" alt="LanceDB"> <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite"> <img src="https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic"> <img src="https://img.shields.io/badge/HTTPX-0F766E?style=for-the-badge" alt="HTTPX"> <img src="https://img.shields.io/badge/structlog-5A5A5A?style=for-the-badge" alt="structlog"> <img src="https://img.shields.io/badge/trafilatura-5A5A5A?style=for-the-badge" alt="trafilatura">
+<img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"> <img src="https://img.shields.io/badge/SearXNG-29ABE2?style=for-the-badge&logo=searxng&logoColor=white" alt="SearXNG"> <img src="https://img.shields.io/badge/LanceDB-333333?style=for-the-badge" alt="LanceDB"> <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite"> <img src="https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic"> <img src="https://img.shields.io/badge/HTTPX-0F766E?style=for-the-badge" alt="HTTPX"> <img src="https://img.shields.io/badge/structlog-5A5A5A?style=for-the-badge" alt="structlog"> <img src="https://img.shields.io/badge/trafilatura-5A5A5A?style=for-the-badge" alt="trafilatura"> <img src="https://img.shields.io/badge/Typst-239DAD?style=for-the-badge&logo=typst&logoColor=white" alt="Typst"> <img src="https://img.shields.io/badge/Matplotlib-11557C?style=for-the-badge" alt="Matplotlib">
 
 <sub><b>Tooling</b></sub>
 
@@ -20,49 +20,56 @@
 
 </div>
 
-## What it is
+> **Status:** `main` is the v1 local-first line, in active development. The v0 hybrid pipeline is archived on [`archive/v0-hybrid-api`](https://github.com/vignesh-nagarajan-vn/Quarry-LDR/tree/archive/v0-hybrid-api) and released as [v0.9.0-beta](https://github.com/vignesh-nagarajan-vn/Quarry-LDR/releases/tag/v0.9.0-beta).
 
-Quarry-LDR takes a research topic and produces a cited markdown report through an iterative loop: plan, search, fetch, index, rerank, extract, find gaps, search again, synthesize. The design rests on one insight: the local GPU is a compression layer, not a brain. Its job is to turn roughly 750K tokens of raw scraped text into roughly 60K tokens of deduplicated, reranked evidence. The Anthropic API is then called on that small, high signal payload for the work that actually needs intelligence.
+## What It Is
 
-Every claim in a report carries a citation that resolves to a source URL and chunk offsets. Every run is checkpointed to SQLite, so an interrupted run resumes from its last completed stage instead of restarting. Every API call lands in a cost ledger computed from the API's own usage blocks.
+Quarry-LDR takes a research topic and produces a cited report through an iterative loop: plan, search, fetch, index, rerank, extract evidence, find gaps, search again, synthesize, verify. The design rests on one insight: the local GPU is a compression layer that turns roughly 750K tokens of raw scraped text into roughly 60K tokens of deduplicated, reranked evidence. Since v1 the GPU is also the brain by default: an 8B model plans the research and writes the report section by section, a 4B model triages evidence and audits coverage, and a cross-encoder verifies every cited sentence against its sources. A default run makes zero API calls and needs no API key.
 
-| Approach | What happens | Cost per report |
+The `engine.mode` setting decides who does the reasoning:
+
+| Engine | What happens | API cost per report |
 | --- | --- | --- |
-| Naive (All API) | ~750K raw tokens through Opus for triage and synthesis | $10 to $15 |
-| Hybrid (Quarry-LDR) | Local GPU embeds, dedups, reranks, triages; ~60K tokens to API | $1.36 to $2.88 measured |
+| Naive (no Quarry) | ~750K raw tokens through Opus | $10 to $15 |
+| `premium` | local GPU compresses; Claude plans, audits gaps, writes | $1.36 to $2.88, measured |
+| `assisted` | local plan and draft; Haiku 4.5 gap checks and one polish pass | to be measured |
+| `local` (default) | everything runs on your GPU | $0.00 |
 
-The measured numbers come from the first live validation runs; [docs/FirstRunReport.md](docs/FirstRunReport.md) breaks down where every cent went and what the failures taught. Everything was built and tested end to end on one laptop card, an NVIDIA RTX 5060 Mobile with 8 GB of VRAM.
+Every claim in a report carries a citation that resolves to a source URL and chunk offsets, and must survive an entailment check against the cited text before render: sentences the evidence does not support are rewritten or dropped. Reports ship as markdown plus a branded PDF with run charts. Every run is checkpointed to SQLite, so an interrupted run resumes from its last completed stage. Every API call lands in a cost ledger computed from the API's own usage blocks, and local model calls are ledgered the same way at zero price, so the $0.00 is enforced, not asserted.
 
-## How it works
+The premium numbers come from the v0 live validation runs; [docs/FirstRunReport.md](docs/FirstRunReport.md) breaks down where every cent went and what the failures taught. Everything runs end to end on one laptop card, an NVIDIA RTX 5060 Mobile with 8 GB of VRAM, where the 8B writer generates at a measured 35.3 tokens per second.
+
+## How It Works
 
 ```mermaid
 flowchart LR
-    T(["Topic"]) --> P["PLAN<br/>Opus"]
+    T(["Topic"]) --> P["PLAN<br/>engine model"]
     P --> Q["SEARCH + COMPRESS<br/>local GPU: embed, dedup,<br/>rerank, triage"]
-    Q -->|"750K tokens<br/>down to 60K"| G{"GAP<br/>Sonnet"}
+    Q -->|"750K tokens<br/>down to 60K"| G{"GAP<br/>engine model"}
     G -->|"new queries"| Q
-    G -->|"saturated"| S["SYNTHESIZE<br/>Opus, cached corpus"]
-    S --> R(["Cited report"])
+    G -->|"saturated"| S["SYNTHESIZE<br/>engine model"]
+    S --> V["VERIFY<br/>local cross-encoder"]
+    V --> R(["Cited report<br/>markdown + PDF"])
 ```
 
-A 14-stage checkpointed pipeline: one Opus call plans sub-questions, SearXNG and a polite fetcher gather sources, and the local GPU embeds, deduplicates, reranks, and triages them down to a token-budgeted evidence corpus. A Sonnet gap check then decides whether to loop, and Opus writes the report section by section over one prompt-cached corpus. A VRAM arbiter with a hard 6.5 GB budget owns all GPU residency so three models share one 8 GB card safely. Diagram, arbiter rules, and every configuration key: [docs/Architecture.md](docs/Architecture.md).
+A 15-stage checkpointed pipeline. The engine model behind PLAN, GAP, and SYNTHESIZE is Qwen3-8B on your own GPU by default, or Claude in the assisted and premium modes; either way SearXNG and a polite fetcher gather sources, and the local GPU embeds, deduplicates, reranks, and triages them down to a token-budgeted evidence corpus. In local mode the 8B model writes each section from a per-section evidence slice with grammar-constrained output, and gap checks run on the already-resident 4B triage model so the loop never pays a model swap; in premium mode Claude writes over one prompt-cached corpus exactly as v0 did. VERIFY then scores every cited sentence against its cited chunks and rewrites or drops what the evidence does not support. A VRAM arbiter with a hard 6.5 GB budget owns all GPU residency so four models share one 8 GB card safely. Diagram, arbiter rules, and every configuration key: [docs/Architecture.md](docs/Architecture.md).
 
-## Run it
+## Run It
 
-Prerequisites: an NVIDIA GPU (8 GB VRAM or more recommended), Docker Desktop or Docker Engine for SearXNG, and an Anthropic API key.
+Prerequisites: an NVIDIA GPU (8 GB VRAM or more recommended) and Docker Desktop or Docker Engine for SearXNG. An Anthropic API key is needed only for the `assisted` and `premium` engines; the default `local` engine runs without one.
 
 ```bash
 git clone https://github.com/vignesh-nagarajan-vn/Quarry-LDR
 cd Quarry-LDR
 make bootstrap                # fresh Windows without GNU make: powershell -ExecutionPolicy Bypass -File scripts/bootstrap.ps1
-cp .env.example .env          # paste your ANTHROPIC_API_KEY
+cp .env.example .env          # optional: paste ANTHROPIC_API_KEY for assisted/premium
 make searxng                  # starts local search in Docker
-uv run python scripts/download_models.py   # fetches llama-server and the triage GGUF
+uv run python scripts/download_models.py   # fetches llama-server and both GGUFs
 uv run quarry verify          # preflight check with remediation hints
 uv run quarry research "your topic"
 ```
 
-The report lands in `data/reports/`, with a cost ledger and a run manifest appended. `quarry resume <run_id>` continues an interrupted run; `quarry inspect <run_id>` dumps stage-by-stage state. `make smoke` runs a capped end-to-end rehearsal first if you want proof before spending on a real topic.
+The report and its PDF land in `data/reports/`, with a cost ledger and a run manifest appended. `--engine premium` buys Claude-written prose at the measured $1.36 to $2.88; `quarry resume <run_id>` continues an interrupted run; `quarry inspect <run_id>` dumps stage-by-stage state. `make smoke` runs a capped end-to-end rehearsal first if you want proof before spending on a real topic.
 
 ## Documentation
 
@@ -78,6 +85,8 @@ The report lands in `data/reports/`, with a cost ledger and a run manifest appen
 
 Read [CLAUDE.md](CLAUDE.md) for the invariants (they are enforced by tests) and [COMMIT.md](COMMIT.md) for the commit contract. Run `make verify` before any PR: format, lint, type check, and the CPU-only test suite must pass without network or an API key.
 
-## License
+## License and Acknowledgements
 
 MIT. See [LICENSE](LICENSE).
+
+The v1 local-first direction is inspired by [local-deep-research](https://github.com/LearningCircuit/local-deep-research) (MIT), which showed how far a fully local research pipeline can go; Quarry-LDR shares no code with it and takes a framework-free path. The pipeline stands on SearXNG, llama.cpp, Qwen's open models, BAAI's embedding and reranker models, trafilatura, LanceDB, Typst, and the Anthropic API for its paid engines.
