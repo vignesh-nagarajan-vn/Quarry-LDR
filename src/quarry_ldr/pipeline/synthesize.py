@@ -1,16 +1,21 @@
-"""SYNTHESIZE stage: Opus writes the report section by section over one
-prompt-cached evidence corpus.
+"""SYNTHESIZE stage: the report is written section by section.
 
-Evidence is first trimmed to ``report.corpus_budget_tokens`` (round-robin
-across sub-questions in descending rerank order), keeping the API payload at
-the design's ~60K tokens no matter how permissive triage was. The corpus is
-then built once, deterministically, hashed once, and every section call sends
-the byte identical prefix with a 1h cache_control breakpoint; the provider
-raises CachePrefixError on any drift rather than silently paying full price.
+Two paths share one section plan, one evidence budget, and one citation
+index. ``synthesize()`` is the API path: the corpus is built once,
+deterministically, hashed once, and every section call sends the byte
+identical prefix with a 1h cache_control breakpoint; the provider raises
+CachePrefixError on drift rather than silently paying full price.
+``synthesize_local()`` is the local path: a 16K-context model cannot hold
+the full corpus, so each body section sees only its own sub-questions'
+evidence and Overview/Conclusions see a compact digest, while citation
+numbers come from one global index assigned up front. Both paths first trim
+evidence to ``report.corpus_budget_tokens`` (round-robin across
+sub-questions in descending rerank order).
 """
 
 from __future__ import annotations
 
+import re
 from collections import deque
 
 from pydantic import BaseModel, Field
@@ -20,8 +25,8 @@ from quarry_ldr.ingest.chunk import HeuristicTokenCounter, TokenCounter
 from quarry_ldr.logging import get_logger
 from quarry_ldr.pipeline.plan import ResearchPlan
 from quarry_ldr.pipeline.triage import TriagedChunk
-from quarry_ldr.providers.anthropic_client import AnthropicProvider, hash_corpus
-from quarry_ldr.report.citations import CitationIndex
+from quarry_ldr.providers.base import Provider, hash_corpus
+from quarry_ldr.report.citations import CITATION_MARKER, CitationError, CitationIndex
 
 logger = get_logger(component="synthesize")
 
@@ -180,7 +185,7 @@ Rules:
 async def synthesize(
     plan: ResearchPlan,
     evidence: list[TriagedChunk],
-    provider: AnthropicProvider,
+    provider: Provider,
     cfg: QuarryConfig,
     citations: CitationIndex,
 ) -> DraftReport:
@@ -225,3 +230,145 @@ async def synthesize(
             markdown, _ = await call_section()
         sections.append(ReportSection(title=brief.title, markdown=markdown))
     return DraftReport(topic=plan.topic, sections=sections, corpus_hash=corpus_hash)
+
+
+class _SectionPayload(BaseModel):
+    """The JSON shape the local model returns for one section."""
+
+    markdown: str
+
+
+LOCAL_SECTION_RULES = (
+    '\nReply with JSON only: {"markdown": "the section body"}. Cite only [n] '
+    "numbers that appear in the corpus above; never invent numbers."
+)
+
+_DIGEST_CLAIMS_PER_SQ = 3
+
+
+def _digest_corpus(
+    plan: ResearchPlan,
+    evidence_by_sq: dict[str, list[TriagedChunk]],
+    citations: CitationIndex,
+) -> str:
+    """Compact all-sub-question digest for the Overview/Conclusions sections:
+    top claims only, tagged with their already-assigned citation numbers."""
+    lines = ["EVIDENCE DIGEST (key claims per sub-question)", ""]
+    for sub_question in plan.sub_questions:
+        lines.append(f"### {sub_question.id}: {sub_question.question}")
+        items = evidence_by_sq.get(sub_question.id, [])[:_DIGEST_CLAIMS_PER_SQ]
+        if not items:
+            lines.append("(no evidence collected)")
+        for item in items:
+            number = citations.add(item.chunk)
+            lines.append(f"[{number}] {item.verdict.claim}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _section_corpus(
+    evidence_by_sq: dict[str, list[TriagedChunk]],
+    sub_question_ids: list[str],
+    citations: CitationIndex,
+    budget_tokens: int,
+) -> str:
+    """Corpus for one body section: only its sub-questions' evidence, trimmed
+    with the same round-robin policy, numbered from the global index
+    (``add()`` returns the existing number for chunks numbered up front)."""
+    scoped = [item for sq_id in sub_question_ids for item in evidence_by_sq.get(sq_id, [])]
+    trimmed = select_evidence(scoped, budget_tokens)
+    return build_evidence_corpus(trimmed, citations)
+
+
+def _strip_invalid_citations(markdown: str, citations: CitationIndex) -> str:
+    """Remove [n] markers the index does not know. Invented numbers would
+    fail validate_markdown at render; semantically-wrong-but-resolving
+    citations are the VERIFY stage's job, not synthesis's."""
+
+    def _keep_or_drop(match: re.Match[str]) -> str:
+        try:
+            citations.get(int(match.group(1)))
+        except CitationError:
+            return ""
+        return match.group(0)
+
+    return CITATION_MARKER.sub(_keep_or_drop, markdown)
+
+
+async def synthesize_local(
+    plan: ResearchPlan,
+    evidence: list[TriagedChunk],
+    provider: Provider,
+    cfg: QuarryConfig,
+    citations: CitationIndex,
+) -> DraftReport:
+    """Per-section synthesis for the local engine (and the assisted draft).
+
+    The full evidence selection is numbered into ``citations`` before any
+    section is written, so numbering is stable no matter which slice each
+    section sees and the references list stays complete. Section calls use
+    the grammar-constrained JSON path the triage stage already proves
+    against llama-server.
+    """
+    selected = select_evidence(evidence, cfg.report.corpus_budget_tokens)
+    if len(selected) < len(evidence):
+        logger.info(
+            "evidence_budget_applied",
+            n_in=len(evidence),
+            n_kept=len(selected),
+            budget_tokens=cfg.report.corpus_budget_tokens,
+        )
+    # Assign the global citation numbering once, up front; the returned
+    # corpus string is discarded on purpose (no section ever sees all of it).
+    build_evidence_corpus(selected, citations)
+
+    ordered = sorted(selected, key=lambda t: (t.sub_question_id, -t.rerank_score, t.chunk.chunk_id))
+    evidence_by_sq: dict[str, list[TriagedChunk]] = {}
+    for item in ordered:
+        evidence_by_sq.setdefault(item.sub_question_id, []).append(item)
+
+    all_ids = {sq.id for sq in plan.sub_questions}
+    digest = _digest_corpus(plan, evidence_by_sq, citations)
+    sections: list[ReportSection] = []
+    for brief in plan_sections(plan, cfg):
+        # Overview/Conclusions span every sub-question (detected structurally,
+        # not by title): they get the digest, never a full corpus.
+        if set(brief.sub_question_ids) == all_ids:
+            corpus = digest
+        else:
+            corpus = _section_corpus(
+                evidence_by_sq, brief.sub_question_ids, citations, cfg.synth.section_budget_tokens
+            )
+        prompt = (
+            corpus
+            + "\n\n"
+            + SECTION_PROMPT.format(
+                title=brief.title,
+                instructions=brief.instructions,
+                sub_question_ids=", ".join(brief.sub_question_ids),
+            )
+            + LOCAL_SECTION_RULES
+        )
+
+        async def call_section(section_prompt: str = prompt) -> str:
+            payload = await provider.complete_typed(
+                model=cfg.models.synthesize,
+                prompt=section_prompt,
+                schema=_SectionPayload,
+                max_tokens=cfg.synth.section_max_tokens,
+                stage="synthesize",
+            )
+            return payload.markdown.strip()
+
+        markdown = await call_section()
+        if not markdown:
+            logger.warning("section_empty_retrying", title=brief.title)
+            markdown = await call_section()
+        cleaned = _strip_invalid_citations(markdown, citations)
+        n_stripped = len(citations.numbers_in(markdown)) - len(citations.numbers_in(cleaned))
+        if n_stripped:
+            logger.warning("section_invalid_citations_stripped", title=brief.title, n=n_stripped)
+        sections.append(ReportSection(title=brief.title, markdown=cleaned))
+    # No single shared prefix exists on the local path; an empty hash keeps
+    # anything downstream from mistaking it for a cache key.
+    return DraftReport(topic=plan.topic, sections=sections, corpus_hash="")

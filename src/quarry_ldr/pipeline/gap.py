@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from quarry_ldr.config import QuarryConfig
 from quarry_ldr.pipeline.plan import ResearchPlan
 from quarry_ldr.pipeline.triage import TriagedChunk
-from quarry_ldr.providers.anthropic_client import AnthropicProvider
+from quarry_ldr.providers.base import Provider
 
 
 class CoverageAssessment(BaseModel):
@@ -63,19 +63,24 @@ def coverage_digest(plan: ResearchPlan, evidence: list[TriagedChunk]) -> str:
 async def analyze_gaps(
     plan: ResearchPlan,
     evidence: list[TriagedChunk],
-    provider: AnthropicProvider,
+    provider: Provider,
     cfg: QuarryConfig,
     iteration: int,
+    model: str | None = None,
 ) -> GapAnalysis:
-    """One models.gap call. saturated=True or an empty new_queries list ends
-    the loop; the orchestrator also enforces run.max_iterations regardless."""
+    """One gap call. saturated=True or an empty new_queries list ends the
+    loop; the orchestrator also enforces run.max_iterations regardless.
+
+    ``model`` overrides ``cfg.models.gap`` (the orchestrator passes
+    models.assisted in assisted mode); stage code stays engine-agnostic.
+    """
     prompt = (
         f"Topic: {plan.topic}\n"
         f"Completed search iterations so far: {iteration + 1}\n\n"
         f"{coverage_digest(plan, evidence)}"
     )
     return await provider.complete_typed(
-        model=cfg.models.gap,
+        model=model if model is not None else cfg.models.gap,
         system=GAP_SYSTEM,
         prompt=prompt,
         schema=GapAnalysis,

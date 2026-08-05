@@ -89,3 +89,18 @@ async def test_analyze_gaps_parses_and_tags_iteration(
     entry = ledger.entries[0]
     assert entry.stage == "gap"
     assert entry.iteration == 2
+
+
+async def test_analyze_gaps_model_override(cfg: QuarryConfig, fixtures_dir: Path) -> None:
+    """The assisted engine passes model=; default call sites keep cfg.models.gap."""
+    body = json.loads((fixtures_dir / "anthropic" / "gap_response.json").read_text("utf-8"))
+    provider = AnthropicProvider(
+        cfg, Ledger(), client=AsyncAnthropic(api_key="test-key-not-real", max_retries=0)
+    )
+    with respx.mock:
+        route = respx.post(MESSAGES).mock(return_value=httpx.Response(200, json=body))
+        await analyze_gaps(
+            make_plan_obj(), [], provider, cfg, iteration=0, model="claude-haiku-4-5-20251001"
+        )
+        payload = json.loads(route.calls[0].request.content)
+    assert payload["model"] == "claude-haiku-4-5-20251001"

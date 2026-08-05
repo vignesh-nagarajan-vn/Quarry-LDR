@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pydantic import BaseModel, Field, field_validator
 
 from quarry_ldr.config import QuarryConfig
-from quarry_ldr.providers.anthropic_client import AnthropicProvider
+from quarry_ldr.providers.base import Provider
 
 
 class SubQuestion(BaseModel):
@@ -57,7 +57,7 @@ PLAN_SYSTEM = (
 )
 
 
-async def make_plan(topic: str, provider: AnthropicProvider, cfg: QuarryConfig) -> ResearchPlan:
+async def make_plan(topic: str, provider: Provider, cfg: QuarryConfig) -> ResearchPlan:
     """One models.plan call returning a validated ResearchPlan."""
     payload = await provider.complete_typed(
         model=cfg.models.plan,
