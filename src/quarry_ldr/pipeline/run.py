@@ -60,6 +60,14 @@ from quarry_ldr.state import RunStatus, RunStore, Stage
 
 logger = get_logger(component="orchestrator")
 
+# Local gap calls run on the triage server, so digest plus output must fit
+# its context: the digest budget converts context tokens to heuristic tokens
+# at the measured 1.35x ratio, with headroom for system prompt and template.
+# A 14-sub-question digest at 40 claims each overflowed the 8K context live.
+_LOCAL_GAP_MAX_TOKENS = 1200
+_LOCAL_GAP_OVERHEAD_TOKENS = 600
+_HEURISTIC_TOKEN_RATIO = 1.35
+
 
 class RunResult(BaseModel):
     run_id: str
@@ -393,14 +401,30 @@ class Orchestrator:
                     )
                     gap_server = llama_server
                     gap_model: str | None = None
+                    gap_digest_budget: int | None = max(
+                        1000,
+                        int(
+                            (
+                                self.cfg.triage.context_tokens
+                                - _LOCAL_GAP_MAX_TOKENS
+                                - _LOCAL_GAP_OVERHEAD_TOKENS
+                            )
+                            / _HEURISTIC_TOKEN_RATIO
+                        ),
+                    )
+                    gap_max_tokens = _LOCAL_GAP_MAX_TOKENS
                 elif mode == "assisted":
                     gap_provider = provider
                     gap_server = None
                     gap_model = self.cfg.models.assisted
+                    gap_digest_budget = None
+                    gap_max_tokens = 4096
                 else:
                     gap_provider = provider
                     gap_server = None
                     gap_model = None
+                    gap_digest_budget = None
+                    gap_max_tokens = 4096
                 gap_payload = await self._stage(
                     store,
                     run_id,
@@ -414,6 +438,8 @@ class Orchestrator:
                         it,
                         gap_server,
                         gap_model,
+                        gap_digest_budget,
+                        gap_max_tokens,
                     ),
                 )
                 persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
@@ -673,11 +699,22 @@ class Orchestrator:
         iteration: int,
         llama_server: LlamaServer | None = None,
         model: str | None = None,
+        digest_budget_tokens: int | None = None,
+        max_tokens: int = 4096,
     ) -> dict[str, Any]:
         if llama_server is not None:
             # A replayed TRIAGE never spawned the server; gap needs it live.
             await llama_server.start()
-        gap = await analyze_gaps(plan, evidence, provider, self.cfg, iteration, model=model)
+        gap = await analyze_gaps(
+            plan,
+            evidence,
+            provider,
+            self.cfg,
+            iteration,
+            model=model,
+            digest_budget_tokens=digest_budget_tokens,
+            max_tokens=max_tokens,
+        )
         logger.info(
             "gap_done",
             saturated=gap.saturated,

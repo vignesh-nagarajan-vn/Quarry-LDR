@@ -275,7 +275,12 @@ class LocalLLM:
         else:
             async with httpx.AsyncClient(timeout=self.timeout_s) as client:
                 response = await client.post(url, json=payload)
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # Surface the server's own explanation (e.g. context overflow);
+            # raise_for_status would bury it behind a bare status line.
+            raise LlamaServerError(
+                f"llama-server returned {response.status_code}: {response.text[:300]}"
+            )
         data: dict[str, Any] = response.json()
         return data
 

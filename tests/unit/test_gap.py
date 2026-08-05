@@ -104,3 +104,92 @@ async def test_analyze_gaps_model_override(cfg: QuarryConfig, fixtures_dir: Path
         )
         payload = json.loads(route.calls[0].request.content)
     assert payload["model"] == "claude-haiku-4-5-20251001"
+
+
+def _bulk_evidence(n_per_sq: int = 40, claim_chars: int = 120) -> list:
+    from quarry_ldr.ingest.chunk import Chunk, make_chunk_id
+
+    url = "https://vesterholm-times.example/2024/a"
+    chunk = Chunk(
+        chunk_id=make_chunk_id(url, 0),
+        url=url,
+        doc_title="d",
+        heading_path=[],
+        text="t",
+        token_count=1,
+        position=0,
+        start_char=0,
+        end_char=1,
+    )
+    return [
+        TriagedChunk(
+            sub_question_id=f"sq{sq:02d}",
+            chunk=chunk,
+            verdict=TriageVerdict(
+                relevant=True,
+                claim=f"Claim {sq}-{i}: " + "x" * claim_chars,
+                evidence_span="s",
+                confidence=1.0,
+            ),
+            rerank_score=1.0,
+        )
+        for sq in range(1, 9)
+        for i in range(n_per_sq)
+    ]
+
+
+def test_budgeted_digest_shrinks_to_fit() -> None:
+    from quarry_ldr.ingest.chunk import HeuristicTokenCounter
+    from quarry_ldr.pipeline.gap import budgeted_digest
+
+    plan = make_plan_obj()
+    evidence = _bulk_evidence()
+    counter = HeuristicTokenCounter()
+    full = coverage_digest(plan, evidence)
+    budget = counter.count(full) // 4
+    digest = budgeted_digest(plan, evidence, budget)
+    assert counter.count(digest) <= budget
+    assert digest.count("claim:") < full.count("claim:")
+    # Every sub-question still appears; coverage shrinks evenly, never drops.
+    for sq in range(1, 9):
+        assert f"sq{sq:02d}:" in digest
+
+
+def test_budgeted_digest_last_resort_truncates_claims() -> None:
+    from quarry_ldr.pipeline.gap import budgeted_digest
+
+    plan = make_plan_obj()
+    evidence = _bulk_evidence(claim_chars=4000)
+    digest = budgeted_digest(plan, evidence, budget_tokens=50)
+    # One claim per sub-question, hard-truncated: no 4000-char lines survive.
+    assert digest.count("claim:") == 8
+    assert max(len(line) for line in digest.splitlines()) < 300
+
+
+async def test_analyze_gaps_digest_budget_bounds_the_prompt(cfg: QuarryConfig) -> None:
+    from typing import Any
+
+    from quarry_ldr.ingest.chunk import HeuristicTokenCounter
+
+    captured: dict[str, Any] = {}
+
+    class CapturingProvider:
+        async def complete_typed(self, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return kwargs["schema"].model_validate(
+                {"saturated": True, "assessments": [], "new_queries": [], "rationale": ""}
+            )
+
+    gap = await analyze_gaps(
+        make_plan_obj(),
+        _bulk_evidence(),
+        CapturingProvider(),  # type: ignore[arg-type]
+        cfg,
+        iteration=0,
+        digest_budget_tokens=400,
+        max_tokens=1200,
+    )
+    assert gap.saturated is True
+    assert captured["max_tokens"] == 1200
+    # Digest budget plus the small topic/iteration header.
+    assert HeuristicTokenCounter().count(captured["prompt"]) <= 400 + 60

@@ -43,6 +43,15 @@ async def test_complete_returns_content() -> None:
         assert await llm.complete("hi") == "hello"
 
 
+async def test_http_error_carries_the_server_body() -> None:
+    body = {"error": {"message": "the request exceeds the available context size"}}
+    with respx.mock:
+        respx.post(CHAT).mock(return_value=httpx.Response(400, json=body))
+        llm = LocalLLM(BASE)
+        with pytest.raises(LlamaServerError, match="exceeds the available context"):
+            await llm.complete("hi")
+
+
 async def test_complete_sends_schema_as_response_format() -> None:
     with respx.mock:
         route = respx.post(CHAT).mock(return_value=httpx.Response(200, json=_chat_response("{}")))
