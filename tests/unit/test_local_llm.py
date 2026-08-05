@@ -20,6 +20,7 @@ from quarry_ldr.gpu.local_llm import (
     _strip_fences,
     find_gguf,
     find_server_binary,
+    synth_server_spec,
 )
 
 BASE = "http://127.0.0.1:8555"
@@ -156,6 +157,40 @@ def test_server_command_full_offload(cfg: QuarryConfig, tmp_path: Path) -> None:
     assert "-c" in command and command[command.index("-c") + 1] == "8192"
     assert "--jinja" in command
     assert command[command.index("--host") + 1] == "127.0.0.1"
+    # The default (triage) spec carries none of the synth-only flags.
+    assert "-fa" not in command
+    assert "--cache-type-k" not in command
+    assert "--reasoning-budget" not in command
+
+
+def test_synth_spec_command_flags(cfg: QuarryConfig, tmp_path: Path) -> None:
+    arbiter = VramArbiter(budget_mb=6656)
+    server = LlamaServer(cfg, arbiter, tmp_path, spec=synth_server_spec(cfg))
+    command = server._command(tmp_path / "llama-server.exe", tmp_path / "m.gguf")
+    assert command[command.index("--port") + 1] == "8556"
+    assert command[command.index("-c") + 1] == "16384"
+    assert command[command.index("-fa") + 1] == "on"
+    assert command[command.index("--cache-type-k") + 1] == "q8_0"
+    assert command[command.index("--cache-type-v") + 1] == "q8_0"
+    assert command[command.index("--reasoning-budget") + 1] == "0"
+    assert server.base_url == "http://127.0.0.1:8556"
+    assert server.spec.gguf_file == cfg.models.synth_gguf_file
+
+
+async def test_two_servers_register_independently(cfg: QuarryConfig, tmp_path: Path) -> None:
+    arbiter = VramArbiter(budget_mb=6656)
+    triage = LlamaServer(cfg, arbiter, tmp_path)
+    synth = LlamaServer(cfg, arbiter, tmp_path, spec=synth_server_spec(cfg))
+    assert triage.spec.arbiter_name == "triage"
+    assert synth.spec.arbiter_name == "synth"
+    assert triage.port != synth.port
+    # Both slots exist under one arbiter; acquiring either without a binary
+    # fails with remediation, proving each loader is wired to its own spec.
+    with pytest.raises(LlamaServerError) as excinfo:
+        async with arbiter.acquire("synth"):
+            pass
+    assert DOWNLOAD_REMEDIATION in str(excinfo.value)
+    assert arbiter.resident_models() == []
 
 
 async def test_server_registers_with_arbiter(cfg: QuarryConfig, tmp_path: Path) -> None:

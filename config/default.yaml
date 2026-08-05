@@ -17,11 +17,14 @@ models:
   gap: claude-sonnet-5
   synthesize: claude-opus-5
   extract_fallback: claude-haiku-4-5-20251001
+  assisted: claude-haiku-4-5-20251001   # engine.mode assisted: gap checks + polish
   # Local GPU models.
   embedder: BAAI/bge-m3
   reranker: BAAI/bge-reranker-v2-m3
   triage_gguf_repo: unsloth/Qwen3-4B-Instruct-2507-GGUF
   triage_gguf_file: Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+  synth_gguf_repo: Qwen/Qwen3-8B-GGUF   # official Apache-2.0 conversion exists at 8B
+  synth_gguf_file: Qwen3-8B-Q4_K_M.gguf
 
 gpu:
   vram_budget_mb: 6656     # 6.5 GB hard budget on an 8 GB card; lower on smaller cards
@@ -29,6 +32,7 @@ gpu:
     embedder: 2186         # measured on the RTX 5060 Mobile 8 GB deployment card (M10)
     reranker: 2128         # measured on the same card and date
     triage: 3600           # WDDM hides llama-server child VRAM; declared value stands
+    synth: 6400            # declared (same WDDM caveat); fits the budget only alone
   embed_batch_size: 32
   rerank_batch_size: 16
 
@@ -64,6 +68,16 @@ triage:
   port: 8555               # llama-server port (8080 collides too often)
   max_retries: 2           # retry budget for malformed JSON from the local model
   confidence_floor: 0.3    # verdicts below this confidence are dropped
+
+synth:
+  context_tokens: 16384    # per-section synthesis needs headroom, never the full corpus
+  port: 8556               # second llama-server; distinct from triage's 8555
+  max_retries: 2           # retry budget for malformed JSON from the local model
+  flash_attn: true         # required for V-cache quantization
+  kv_cache_type: q8_0      # halves KV memory at negligible quality cost
+  reasoning_budget: 0      # disables Qwen3 thinking mode; sections need prose, not deliberation
+  section_budget_tokens: 6000  # per-section evidence cap in heuristic tokens
+  section_max_tokens: 2048     # per-section generation cap
 
 api:
   max_retries: 5           # backoff retries for 429/529

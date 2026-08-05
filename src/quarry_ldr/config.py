@@ -32,16 +32,24 @@ class ModelSettings(BaseModel):
     gap: str = "claude-sonnet-5"
     synthesize: str = "claude-opus-5"
     extract_fallback: str = "claude-haiku-4-5-20251001"
+    assisted: str = "claude-haiku-4-5-20251001"
     embedder: str = "BAAI/bge-m3"
     reranker: str = "BAAI/bge-reranker-v2-m3"
     triage_gguf_repo: str = "unsloth/Qwen3-4B-Instruct-2507-GGUF"
     triage_gguf_file: str = "Qwen3-4B-Instruct-2507-Q4_K_M.gguf"
+    synth_gguf_repo: str = "Qwen/Qwen3-8B-GGUF"
+    synth_gguf_file: str = "Qwen3-8B-Q4_K_M.gguf"
 
 
 class GpuSettings(BaseModel):
     vram_budget_mb: int = 6656
     footprints_mb: dict[str, int] = Field(
-        default_factory=lambda: {"embedder": 2186, "reranker": 2128, "triage": 3600}
+        default_factory=lambda: {
+            "embedder": 2186,
+            "reranker": 2128,
+            "triage": 3600,
+            "synth": 6400,
+        }
     )
     embed_batch_size: int = 32
     rerank_batch_size: int = 16
@@ -86,6 +94,17 @@ class TriageSettings(BaseModel):
     confidence_floor: float = 0.3
 
 
+class SynthSettings(BaseModel):
+    context_tokens: int = 16384
+    port: int = 8556
+    max_retries: int = 2
+    flash_attn: bool = True
+    kv_cache_type: str | None = "q8_0"
+    reasoning_budget: int = 0
+    section_budget_tokens: int = 6000
+    section_max_tokens: int = 2048
+
+
 class ApiSettings(BaseModel):
     max_retries: int = 5
     retry_base_s: float = 1.0
@@ -119,6 +138,7 @@ class QuarryConfig(BaseSettings):
     dedup: DedupSettings = Field(default_factory=DedupSettings)
     retrieve: RetrieveSettings = Field(default_factory=RetrieveSettings)
     triage: TriageSettings = Field(default_factory=TriageSettings)
+    synth: SynthSettings = Field(default_factory=SynthSettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
     report: ReportSettings = Field(default_factory=ReportSettings)
 

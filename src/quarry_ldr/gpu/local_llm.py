@@ -1,11 +1,13 @@
-"""llama-server lifecycle plus an OpenAI-compatible client for local triage.
+"""llama-server lifecycle plus an OpenAI-compatible client for local models.
 
-The server binary and GGUF are downloaded by scripts/download_models.py into
-``models/``. The server process is registered with the arbiter as "triage" so
-its VRAM (weights plus KV cache) participates in budget math: the loader
-spawns the subprocess with full GPU offload and blocks until /health is ok,
-the unloader terminates it. Acquiring "triage" therefore evicts the embedder
-and reranker first when the budget requires it, which is exactly the batched
+The server binary and GGUFs are downloaded by scripts/download_models.py into
+``models/``. Each server instance is described by a ``LlamaServerSpec``: the
+default spec is the triage model, ``synth_server_spec`` builds the synthesis
+model's. A server registers with the arbiter under its spec's name so its
+VRAM (weights plus KV cache) participates in budget math: the loader spawns
+the subprocess with full GPU offload and blocks until /health is ok, the
+unloader terminates it. Acquiring a server's name therefore evicts other
+residents first when the budget requires it, which is exactly the batched
 stage order the pipeline uses.
 """
 
@@ -78,20 +80,68 @@ class _ServerHandle:
     port: int
 
 
+@dataclass(frozen=True)
+class LlamaServerSpec:
+    """One llama-server instance: which GGUF, which port, which arbiter slot."""
+
+    arbiter_name: str
+    port: int
+    context_tokens: int
+    gguf_file: str
+    footprint_key: str
+    default_footprint_mb: int
+    flash_attn: bool = False
+    kv_cache_type: str | None = None
+    reasoning_budget: int | None = None
+
+
+def synth_server_spec(cfg: QuarryConfig) -> LlamaServerSpec:
+    """The synthesis model's server spec (engine.mode local/assisted)."""
+    return LlamaServerSpec(
+        arbiter_name="synth",
+        port=cfg.synth.port,
+        context_tokens=cfg.synth.context_tokens,
+        gguf_file=cfg.models.synth_gguf_file,
+        footprint_key="synth",
+        default_footprint_mb=6400,
+        flash_attn=cfg.synth.flash_attn,
+        kv_cache_type=cfg.synth.kv_cache_type,
+        reasoning_budget=cfg.synth.reasoning_budget,
+    )
+
+
 class LlamaServer:
-    """Manages the llama-server subprocess as an arbiter-registered model."""
+    """Manages one llama-server subprocess as an arbiter-registered model."""
 
-    ARBITER_NAME = "triage"
+    ARBITER_NAME = "triage"  # the default spec's arbiter slot
 
-    def __init__(self, cfg: QuarryConfig, arbiter: VramArbiter, models_dir: Path) -> None:
+    def __init__(
+        self,
+        cfg: QuarryConfig,
+        arbiter: VramArbiter,
+        models_dir: Path,
+        spec: LlamaServerSpec | None = None,
+    ) -> None:
         self.cfg = cfg
         self.arbiter = arbiter
         self.models_dir = models_dir
-        self.port = cfg.triage.port
+        # The default spec reproduces the original triage behavior exactly,
+        # so pre-spec call sites and tests stand unchanged.
+        self.spec = spec or LlamaServerSpec(
+            arbiter_name=self.ARBITER_NAME,
+            port=cfg.triage.port,
+            context_tokens=cfg.triage.context_tokens,
+            gguf_file=cfg.models.triage_gguf_file,
+            footprint_key="triage",
+            default_footprint_mb=3600,
+        )
+        self.port = self.spec.port
         arbiter.register(
             ModelSpec(
-                name=self.ARBITER_NAME,
-                footprint_mb=cfg.gpu.footprints_mb.get("triage", 3600),
+                name=self.spec.arbiter_name,
+                footprint_mb=cfg.gpu.footprints_mb.get(
+                    self.spec.footprint_key, self.spec.default_footprint_mb
+                ),
                 loader=self._spawn,
                 unloader=self._terminate,
             )
@@ -102,27 +152,42 @@ class LlamaServer:
         return f"http://127.0.0.1:{self.port}"
 
     def _command(self, binary: Path, gguf: Path) -> list[str]:
-        return [
+        command = [
             str(binary),
             "-m",
             str(gguf),
             "--host",
             "127.0.0.1",
             "--port",
-            str(self.port),
+            str(self.spec.port),
             "-ngl",
             "99",  # full offload; partial offload is catastrophic on 8 GB cards
             "-c",
-            str(self.cfg.triage.context_tokens),
+            str(self.spec.context_tokens),
             "--jinja",  # use the GGUF's embedded chat template
         ]
+        if self.spec.flash_attn:
+            command += ["-fa", "on"]
+        if self.spec.kv_cache_type is not None:
+            # V-cache quantization requires flash attention to be on.
+            command += [
+                "--cache-type-k",
+                self.spec.kv_cache_type,
+                "--cache-type-v",
+                self.spec.kv_cache_type,
+            ]
+        if self.spec.reasoning_budget is not None:
+            # 0 disables thinking on hybrid-reasoning models (Qwen3 family):
+            # report sections need prose, not deliberation tokens.
+            command += ["--reasoning-budget", str(self.spec.reasoning_budget)]
+        return command
 
     def _spawn(self) -> _ServerHandle:
         """Arbiter loader: spawn the subprocess and block until /health is ok."""
         # Absolute paths: the subprocess runs with cwd at the binary's folder
         # (so its DLLs resolve), which would break a relative -m path.
         binary = find_server_binary(self.models_dir).resolve()
-        gguf = find_gguf(self.models_dir, self.cfg.models.triage_gguf_file).resolve()
+        gguf = find_gguf(self.models_dir, self.spec.gguf_file).resolve()
         command = self._command(binary, gguf)
         logger.info("llama_server_starting", port=self.port, gguf=gguf.name)
         try:
@@ -174,7 +239,7 @@ class LlamaServer:
 
     async def start(self) -> None:
         """Load (spawn) the server via the arbiter, evicting others as needed."""
-        async with self.arbiter.acquire(self.ARBITER_NAME):
+        async with self.arbiter.acquire(self.spec.arbiter_name):
             pass
 
     async def stop(self) -> None:

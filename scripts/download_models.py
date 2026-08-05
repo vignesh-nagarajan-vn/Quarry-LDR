@@ -3,7 +3,11 @@
 Fetches, into the gitignored models/ directory:
   * a llama.cpp release build with CUDA support for this platform (providing
     llama-server), plus the separate cudart bundle when the release ships one;
-  * the triage GGUF (config: models.triage_gguf_repo / models.triage_gguf_file).
+  * the triage GGUF (config: models.triage_gguf_repo / models.triage_gguf_file);
+  * the synth GGUF (config: models.synth_gguf_repo / models.synth_gguf_file),
+    used by engine.mode local and assisted. Both GGUFs download by default so
+    a later engine switch never requires re-running bootstrap; skip flags
+    exist for constrained disks.
 
 The embedder and reranker download themselves into the Hugging Face cache on
 first use, so they are not fetched here. Idempotent: already-present files
@@ -108,7 +112,7 @@ def download_gguf(models_dir: Path, repo: str, filename: str) -> int:
         print("ERROR: huggingface_hub is not installed.")
         print("fix:  uv sync --extra gpu")
         return 1
-    print(f"downloading {repo}/{filename} (about 2.4 GB)...")
+    print(f"downloading {repo}/{filename} (multi-GB, one time)...")
     target.parent.mkdir(parents=True, exist_ok=True)
     hf_hub_download(
         repo_id=repo,
@@ -130,7 +134,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--models-dir", type=Path, default=cfg.run.models_dir)
     parser.add_argument("--skip-llama", action="store_true")
-    parser.add_argument("--skip-gguf", action="store_true")
+    parser.add_argument("--skip-gguf", action="store_true", help="skip the triage GGUF")
+    parser.add_argument("--skip-synth-gguf", action="store_true", help="skip the synth GGUF")
     args = parser.parse_args()
 
     exit_code = 0
@@ -139,6 +144,10 @@ def main() -> int:
     if not args.skip_gguf:
         exit_code |= download_gguf(
             args.models_dir, cfg.models.triage_gguf_repo, cfg.models.triage_gguf_file
+        )
+    if not args.skip_synth_gguf:
+        exit_code |= download_gguf(
+            args.models_dir, cfg.models.synth_gguf_repo, cfg.models.synth_gguf_file
         )
     return exit_code
 

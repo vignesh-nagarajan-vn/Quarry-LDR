@@ -18,6 +18,7 @@ from quarry_ldr.gpu.local_llm import (
     LocalLLM,
     find_gguf,
     find_server_binary,
+    synth_server_spec,
 )
 from quarry_ldr.logging import get_logger
 from quarry_ldr.pipeline.triage import TriageVerdict
@@ -71,6 +72,47 @@ async def test_server_lifecycle_and_typed_json(live_cfg) -> None:  # type: ignor
     )
     assert verdict.relevant is True
     assert "600" in verdict.evidence_span or "600" in verdict.claim
+
+    await server.stop()
+    assert arbiter.resident_models() == []
+    assert not await server.is_healthy()
+
+
+async def test_synth_server_lifecycle_and_generation(live_cfg) -> None:  # type: ignore[no-untyped-def]
+    try:
+        find_gguf(live_cfg.run.models_dir, live_cfg.models.synth_gguf_file)
+    except LlamaServerError as exc:
+        pytest.skip(f"synth GGUF not downloaded: {exc}")
+    log = get_logger(component="test_local_llm_live")
+    arbiter = VramArbiter(budget_mb=live_cfg.gpu.vram_budget_mb, backend=TorchCudaBackend())
+    server = LlamaServer(
+        live_cfg, arbiter, live_cfg.run.models_dir, spec=synth_server_spec(live_cfg)
+    )
+
+    started = time.monotonic()
+    await server.start()
+    startup_s = time.monotonic() - started
+    assert await server.is_healthy()
+    assert arbiter.resident_models() == ["synth"]
+
+    llm = LocalLLM(server.base_url)
+    t0 = time.monotonic()
+    text, usage, finish_reason = await llm.complete_with_usage(
+        "Write two sentences about sand batteries for grid storage.", max_tokens=128
+    )
+    latency_s = time.monotonic() - t0
+    log.info(
+        "live_synth_measured",
+        startup_s=round(startup_s, 1),
+        latency_s=round(latency_s, 2),
+        output_tokens=usage.output_tokens,
+        tok_s=round(usage.output_tokens / latency_s, 1) if latency_s > 0 else 0.0,
+        finish_reason=finish_reason,
+    )
+    assert text.strip()
+    assert usage.output_tokens > 0
+    # reasoning_budget 0 must suppress Qwen3 thinking blocks entirely.
+    assert "<think>" not in text
 
     await server.stop()
     assert arbiter.resident_models() == []

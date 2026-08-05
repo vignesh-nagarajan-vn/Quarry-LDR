@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from quarry_ldr.config import QuarryConfig, load_config
 from quarry_ldr.gpu.arbiter import TorchCudaBackend, VramArbiter
 from quarry_ldr.gpu.embedder import Embedder
-from quarry_ldr.gpu.local_llm import LlamaServer, LlamaServerError, LocalLLM
+from quarry_ldr.gpu.local_llm import LlamaServer, LlamaServerError, LocalLLM, synth_server_spec
 from quarry_ldr.gpu.reranker import Reranker
 from quarry_ldr.pipeline.triage import TRIAGE_PROMPT, TriageVerdict
 
@@ -97,26 +97,41 @@ async def _bench_reranker(cfg: QuarryConfig, arbiter: VramArbiter) -> BenchResul
     return BenchResult("reranker", declared_mb, measured_mb, throughput)
 
 
-async def _bench_llama_server(cfg: QuarryConfig, arbiter: VramArbiter) -> BenchResult | None:
-    llama_server = LlamaServer(cfg, arbiter, Path(cfg.run.models_dir))
-    declared_mb = cfg.gpu.footprints_mb.get("triage", 3600)
+async def _bench_llama_server(
+    cfg: QuarryConfig, arbiter: VramArbiter, server: LlamaServer, label: str
+) -> BenchResult | None:
+    declared_mb = cfg.gpu.footprints_mb.get(
+        server.spec.footprint_key, server.spec.default_footprint_mb
+    )
     try:
-        await llama_server.start()
+        await server.start()
     except LlamaServerError as exc:
-        print(f"SKIP: triage (llama-server): {exc}")
+        print(f"SKIP: {label}: {exc}")
         return None
 
-    local_llm = LocalLLM(llama_server.base_url)
-    prompt = TRIAGE_PROMPT.format(question=_QUESTION, passage=_PASSAGE)
-    start = time.perf_counter()
-    await local_llm.complete_typed(prompt, TriageVerdict, max_retries=cfg.triage.max_retries)
-    elapsed = time.perf_counter() - start
+    local_llm = LocalLLM(server.base_url)
+    if server.spec.footprint_key == "triage":
+        prompt = TRIAGE_PROMPT.format(question=_QUESTION, passage=_PASSAGE)
+        start = time.perf_counter()
+        await local_llm.complete_typed(prompt, TriageVerdict, max_retries=cfg.triage.max_retries)
+        elapsed = time.perf_counter() - start
+        throughput = f"1 verdict in {elapsed:.2f}s"
+    else:
+        # Section-shaped workload: sustained generation, reported as tok/s.
+        start = time.perf_counter()
+        _, usage, _ = await local_llm.complete_with_usage(
+            "Write a 150-word overview of sand-battery grid storage economics.",
+            max_tokens=256,
+        )
+        elapsed = time.perf_counter() - start
+        tok_s = usage.output_tokens / elapsed if elapsed > 0 else 0.0
+        throughput = f"{usage.output_tokens} tokens in {elapsed:.2f}s ({tok_s:.1f} tok/s)"
 
     return BenchResult(
-        "triage (llama-server)",
+        label,
         declared_mb,
         None,
-        f"1 verdict in {elapsed:.2f}s",
+        throughput,
         note="WDDM hides a child process's VRAM from the parent; measured MB "
         "is not observable here, only the declared footprint.",
     )
@@ -124,12 +139,19 @@ async def _bench_llama_server(cfg: QuarryConfig, arbiter: VramArbiter) -> BenchR
 
 async def _run_all(cfg: QuarryConfig, arbiter: VramArbiter) -> list[BenchResult]:
     results = [await _bench_embedder(cfg, arbiter), await _bench_reranker(cfg, arbiter)]
+    models_dir = Path(cfg.run.models_dir)
+    triage_server = LlamaServer(cfg, arbiter, models_dir)
+    synth_server = LlamaServer(cfg, arbiter, models_dir, spec=synth_server_spec(cfg))
     try:
-        llama_result = await _bench_llama_server(cfg, arbiter)
+        for server, label in (
+            (triage_server, "triage (llama-server)"),
+            (synth_server, "synth (llama-server)"),
+        ):
+            result = await _bench_llama_server(cfg, arbiter, server, label)
+            if result is not None:
+                results.append(result)
     finally:
         await arbiter.evict_all()
-    if llama_result is not None:
-        results.append(llama_result)
     return results
 
 
