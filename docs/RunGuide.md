@@ -20,6 +20,8 @@ cd Quarry-LDR
 make bootstrap
 ```
 
+On Windows, clone to a short path (`C:\src\Quarry-LDR`, not a deeply nested folder): one dependency ships filenames long enough that a deep `.venv` crosses the 260-character MAX_PATH limit unless Windows long paths are enabled.
+
 On a fresh Windows machine without GNU make, the same thing is:
 
 ```bash
