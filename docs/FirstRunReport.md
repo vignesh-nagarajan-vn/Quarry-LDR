@@ -39,7 +39,7 @@ The recurring theme: three of the eight are the same bug in different clothes. A
 
 ## Anatomy of the substantive report
 
-Topic: whether a dealer's quoting policy and the market response it induces can be learned jointly as a self-consistent fixed point in OTC corporate bond markets. Three search iterations, 15 sub-questions, 404 triaged evidence chunks trimmed to 79 by the token budget, a 57,815-token cached corpus, 10 sections.
+Topic: whether a dealer's quoting policy and the market response it induces can be learned jointly as a self-consistent fixed point in OTC corporate bond markets. Three search iterations, 15 sub-questions, 404 triaged evidence chunks trimmed to 79 by the token budget, a 57,815-token cached corpus, 10 sections. The report itself is committed at [ExampleReport.md](ExampleReport.md).
 
 | Stage | Model | Calls | Cost |
 | --- | --- | --- | --- |

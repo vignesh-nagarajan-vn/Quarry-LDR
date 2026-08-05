@@ -68,6 +68,7 @@ The report lands in `data/reports/`, with a cost ledger and a run manifest appen
 
 - [docs/Architecture.md](docs/Architecture.md): pipeline diagram, VRAM arbiter, hardware design target, full configuration reference, API pricing the ledger uses.
 - [docs/FirstRunReport.md](docs/FirstRunReport.md): the live validation story; measured costs, the bugs only production could find, and what each dollar bought.
+- [docs/ExampleReport.md](docs/ExampleReport.md): a real report the pipeline produced during validation, on dealer quoting as a performative fixed-point problem; $2.88 of API spend, verbatim except punctuation.
 - [docs/Troubleshooting.md](docs/Troubleshooting.md): symptoms, causes, and exact fixes.
 - [CLAUDE.md](CLAUDE.md): invariants and operating rules for coding sessions.
 - [COMMIT.md](COMMIT.md): the commit contract.
