@@ -85,7 +85,7 @@ What $0.00 buys, verbatim from [a real local-engine run](pdf-reports/):
 ## Documentation
 
 - [docs/RunGuide.md](docs/RunGuide.md): the complete run guide; setup, all three engines with commands and measured costs, configuration, resume, rehearsals, operational cautions.
-- [pdf-reports/](pdf-reports/): sample PDF reports straight from the pipeline, one local ($0.00) and one assisted ($0.02), with the numbers behind each.
+- [pdf-reports/](pdf-reports/): sample PDF reports straight from the pipeline, one local ($0.00) and one assisted ($0.06), with the numbers behind each.
 - [docs/Architecture.md](docs/Architecture.md): pipeline diagram, engine modes, VRAM arbiter, hardware design target, full configuration reference, API pricing the ledger uses.
 - [docs/first-test/](docs/first-test/): the v0 live validation record; [FirstRunReport.md](docs/first-test/FirstRunReport.md) breaks down measured costs and the bugs only production could find, and [ExampleReport.md](docs/first-test/ExampleReport.md) is the $2.88 premium report it produced, verbatim except punctuation.
 - [docs/Troubleshooting.md](docs/Troubleshooting.md): symptoms, causes, and exact fixes.
