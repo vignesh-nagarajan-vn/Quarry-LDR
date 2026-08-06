@@ -231,7 +231,7 @@ async def synthesize(
             # the cached corpus, so the second attempt costs cents.
             logger.warning("section_empty_retrying", title=brief.title)
             markdown, _ = await call_section()
-        sections.append(ReportSection(title=brief.title, markdown=markdown))
+        sections.append(ReportSection(title=brief.title, markdown=_strip_leading_heading(markdown)))
     return DraftReport(topic=plan.topic, sections=sections, corpus_hash=corpus_hash)
 
 
@@ -281,6 +281,20 @@ def _section_corpus(
     scoped = [item for sq_id in sub_question_ids for item in evidence_by_sq.get(sq_id, [])]
     trimmed = select_evidence(scoped, budget_tokens)
     return build_evidence_corpus(trimmed, citations)
+
+
+_LEADING_HEADING = re.compile(r"^#{1,2}\s+[^\n]*\n?")
+
+
+def _strip_leading_heading(markdown: str) -> str:
+    """Drop a model-emitted top-level heading opening a section body.
+
+    The renderer owns section headings and SECTION_PROMPT forbids them, but
+    claude-opus-5 was observed opening sections with a literal `# Title` or
+    `## Title` line anyway, which rendered as duplicate text under the styled
+    heading. Deeper headings (###+) are legitimate subsections and pass.
+    """
+    return _LEADING_HEADING.sub("", markdown.lstrip(), count=1).lstrip("\n")
 
 
 def _strip_invalid_citations(markdown: str, citations: CitationIndex) -> str:
@@ -367,7 +381,7 @@ async def synthesize_local(
         if not markdown:
             logger.warning("section_empty_retrying", title=brief.title)
             markdown = await call_section()
-        cleaned = _strip_invalid_citations(markdown, citations)
+        cleaned = _strip_invalid_citations(_strip_leading_heading(markdown), citations)
         n_stripped = len(citations.numbers_in(markdown)) - len(citations.numbers_in(cleaned))
         if n_stripped:
             logger.warning("section_invalid_citations_stripped", title=brief.title, n=n_stripped)

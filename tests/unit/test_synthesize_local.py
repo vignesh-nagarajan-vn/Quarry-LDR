@@ -11,6 +11,7 @@ from quarry_ldr.pipeline.synthesize import (
     _digest_corpus,
     _section_corpus,
     _strip_invalid_citations,
+    _strip_leading_heading,
     build_evidence_corpus,
     synthesize_local,
 )
@@ -135,6 +136,15 @@ async def test_section_prompts_respect_budget(cfg: QuarryConfig) -> None:
     for prompt in fake.prompts[1:-1]:
         if prompt.startswith("EVIDENCE CORPUS"):
             assert counter.count(prompt) <= cfg.synth.section_budget_tokens + scaffold_allowance
+
+
+def test_strip_leading_heading_drops_model_emitted_titles() -> None:
+    """claude-opus-5 was observed opening sections with # or ## titles the
+    renderer already injects; ###+ subsections are content and must pass."""
+    assert _strip_leading_heading("# Overview\n\nBody [1].") == "Body [1]."
+    assert _strip_leading_heading("## A long question title\nBody.") == "Body."
+    assert _strip_leading_heading("### Subsection\n\nBody.").startswith("### Subsection")
+    assert _strip_leading_heading("Plain body [2].") == "Plain body [2]."
 
 
 def test_strip_invalid_citations_removes_unknown_markers() -> None:
