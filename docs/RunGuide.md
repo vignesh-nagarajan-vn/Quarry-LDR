@@ -77,7 +77,7 @@ Zero API calls, no key needed, $0.00 enforced by the ledger (local calls are met
 uv run quarry research "your topic" --engine assisted --max-cost 0.50
 ```
 
-Local plan and draft, with Haiku 4.5 doing the gap audits and one polish pass over the assembled draft. The polish is guarded: the citation-marker multiset must survive exactly and the section delimiters must round-trip, or the polish is discarded and the local draft stands. Measured cost of the one-iteration smoke rehearsal: $0.0224, all of it the single polish call; a full-depth run adds one or two small gap calls and stays well under $0.10.
+Local plan and draft, with Haiku 4.5 doing the gap audits and one polish pass over the assembled draft. The polish is guarded: the citation-marker multiset must survive exactly and the section delimiters must round-trip, or the polish is discarded and the local draft stands. Measured across three executions: $0.0224 (one iteration, polish only), $0.0567 (two iterations, one gap audit plus polish), $0.1188 (three iterations, before a since-fixed schema retry doubled each gap call). Budget a dime.
 
 ### `premium`
 
@@ -85,7 +85,7 @@ Local plan and draft, with Haiku 4.5 doing the gap audits and one polish pass ov
 uv run quarry research "your topic" --engine premium
 ```
 
-The v0 hybrid behavior, preserved: Opus 5 plans and writes over one prompt-cached, token-budgeted evidence corpus, Sonnet 5 audits coverage each iteration. Measured $1.36 to $2.88 per report on the live validation runs; [first-test/FirstRunReport.md](first-test/FirstRunReport.md) breaks down where every cent goes. The default $5.00 cost cap applies; the ledger raises `CostCapExceeded` mid-run if crossed, and the run stays resumable.
+The v0 hybrid behavior, preserved: Opus 5 plans and writes over one prompt-cached, token-budgeted evidence corpus, Sonnet 5 audits coverage each iteration. Measured $1.36 to $2.88 per report on the live validation runs, re-confirmed at $2.55 under v1 (one 60K-token cache write, nine cache reads); [first-test/FirstRunReport.md](first-test/FirstRunReport.md) breaks down where every cent goes. The default $5.00 cost cap applies; the ledger raises `CostCapExceeded` mid-run if crossed, and the run stays resumable.
 
 ## Configuration
 

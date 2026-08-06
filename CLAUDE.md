@@ -4,9 +4,11 @@ The complete operating context for anyone, human or agent, working in this repo:
 
 ## Purpose
 
-Quarry-LDR turns a research topic into a cited report (markdown plus a branded PDF). A local GPU compresses ~750K tokens of scraped web text into ~60K tokens of deduplicated, reranked evidence, and `engine.mode` decides who reasons over it: `local` (default, Qwen3 8B/4B via llama-server, $0.00, no API key), `assisted` (local draft, Haiku gap checks and polish, measured $0.02 on the smoke rehearsal), or `premium` (Claude plans, audits, writes; measured $1.36 to $2.88 per report). VERIFY scores every cited sentence against its cited chunks in every mode and rewrites or drops what the evidence does not support.
+Quarry-LDR turns a research topic into a cited report (markdown plus a branded PDF). A local GPU compresses ~750K tokens of scraped web text into ~60K tokens of deduplicated, reranked evidence, and `engine.mode` decides who reasons over it: `local` (default, Qwen3 8B/4B via llama-server, $0.00, no API key), `assisted` (local draft, Haiku gap checks and polish, measured $0.02 to $0.12 across three executions), or `premium` (Claude plans, audits, writes; measured $1.36 to $2.88 per report, $2.55 confirmed under v1). VERIFY scores every cited sentence against its cited chunks in every mode and rewrites or drops what the evidence does not support.
 
 The design bet, proven by the measured numbers: compression is the expensive part of research and a consumer GPU does it free; reasoning over compressed evidence is cheap enough to run locally by default and to buy selectively when quality demands it.
+
+Release state: v1.0.0 is tagged (2026-08-06) after a live validation matrix covering all three engines, both polish-guard branches, the VERIFY rewrite-or-drop path under a forced floor, organic drops at the production floor, and the premium prompt-cache economics under v1. Every measured number lives in DECISIONS.md; treat that file as the ground truth when prose and numbers disagree.
 
 ## Orientation
 
@@ -128,6 +130,8 @@ A bad one: `Fixed some GPU stuff and updated docs (WIP)`. No type or scope, past
 - Keep subagents on cheaper models. The orchestrating model reviews and judges; it does not type boilerplate.
 - Read files, run tests, and grep via delegated agents when context is tight.
 - Live runs are slow (an hour for a full local report) and search engines suspend IPs that burst: space live runs out, monitor them from their logs, and prefer `quarry resume` over restarts; checkpoints make interruption cheap.
+- Before any run burst, probe search health with three spaced queries and require all three healthy; a single passing probe has been observed lying (engines serve one-off queries while still refusing bursts). During suspensions, `search_done n_urls=0` cascades hollow stages in seconds; kill the run before a paid gap call fires on an empty digest.
+- Watch the right stream when monitoring detached runs: `quarry` CLI runs log to stderr, `scripts/smoke.py` prints to stdout.
 
 ## Do Not
 

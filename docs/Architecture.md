@@ -137,7 +137,7 @@ Every stage transition is a row in a SQLite run store, so `quarry resume <run_id
 | SYNTHESIZE | Qwen3 8B per section | Qwen3 8B + one Haiku polish pass | Opus 5, prompt-cached corpus |
 | VERIFY | always local | always local | always local |
 | API key | not needed | required | required |
-| API cost per report | $0.00 | measured per report, well under premium | $1.36 to $2.88 measured |
+| API cost per report | $0.00 | $0.02 to $0.12 measured | $1.36 to $2.88 measured |
 
 Notes that matter in practice:
 
