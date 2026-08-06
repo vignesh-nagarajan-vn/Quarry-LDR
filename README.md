@@ -30,7 +30,7 @@ The `engine.mode` setting decides who does the reasoning:
 | --- | --- | --- |
 | Naive (no Quarry) | ~750K raw tokens through Opus | $10 to $15 |
 | `premium` | local GPU compresses; Claude plans, audits gaps, writes | $1.36 to $2.88, measured |
-| `assisted` | local plan and draft; Haiku 4.5 gap checks and one polish pass | $0.02, measured |
+| `assisted` | local plan and draft; Haiku 4.5 gap checks and one polish pass | $0.02 to $0.12, measured |
 | `local` (default) | everything runs on your GPU | $0.00 |
 
 Every claim in a report carries a citation that resolves to a source URL and chunk offsets, and must survive an entailment check against the cited text before render: sentences the evidence does not support are rewritten or dropped. Reports ship as markdown plus a branded PDF with run charts. Every run is checkpointed to SQLite, so an interrupted run resumes from its last completed stage. Every API call lands in a cost ledger computed from the API's own usage blocks, and local model calls are ledgered the same way at zero price, so the $0.00 is enforced, not asserted.
