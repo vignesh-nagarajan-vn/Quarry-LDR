@@ -76,6 +76,12 @@ uv run quarry research "your topic"
 
 The report and its PDF land in `data/reports/`, with a cost ledger and a run manifest appended. `--engine premium` buys Claude-written prose at the measured $1.36 to $2.88; `quarry resume <run_id>` continues an interrupted run; `quarry inspect <run_id>` dumps stage-by-stage state. `make smoke-local` runs a $0 end-to-end rehearsal first if you want proof before a real topic, and `make smoke` does the same on the configured engine under a $2.00 cap. Every flag, engine, config knob, and operational caution, in one place: [docs/RunGuide.md](docs/RunGuide.md).
 
+What $0.00 buys, verbatim from [a real local-engine run](pdf-reports/):
+
+| The branded cover | The run appendix |
+| :---: | :---: |
+| [<img src="pdf-reports/preview-cover.png" width="380" alt="Sample report cover page">](pdf-reports/iron-air-batteries-local-engine.pdf) | [<img src="pdf-reports/preview-charts.png" width="380" alt="Sample report run charts page">](pdf-reports/iron-air-batteries-local-engine.pdf) |
+
 ## Documentation
 
 - [docs/RunGuide.md](docs/RunGuide.md): the complete run guide; setup, all three engines with commands and measured costs, configuration, resume, rehearsals, operational cautions.
