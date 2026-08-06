@@ -8,15 +8,15 @@
 
 <sub><b>Language & AI</b></sub>
 
-<img src="https://img.shields.io/badge/Python_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12"> <img src="https://img.shields.io/badge/PyTorch_cu128-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch cu128"> <img src="https://img.shields.io/badge/CUDA_12.8-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA 12.8"> <img src="https://img.shields.io/badge/Claude_API-D97757?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude API"> <img src="https://img.shields.io/badge/Hugging_Face-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black" alt="Hugging Face"> <img src="https://img.shields.io/badge/llama.cpp-000000?style=for-the-badge" alt="llama.cpp"> <img src="https://img.shields.io/badge/Qwen3-615CED?style=for-the-badge" alt="Qwen3"> <img src="https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy">
+<img src="https://img.shields.io/badge/Python_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12"> <img src="https://img.shields.io/badge/Qwen3-615CED?style=for-the-badge" alt="Qwen3"> <img src="https://img.shields.io/badge/llama.cpp-000000?style=for-the-badge" alt="llama.cpp"> <img src="https://img.shields.io/badge/PyTorch_cu128-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch cu128"> <img src="https://img.shields.io/badge/CUDA_12.8-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA 12.8"> <img src="https://img.shields.io/badge/sentence--transformers-1D9BF0?style=for-the-badge" alt="sentence-transformers"> <img src="https://img.shields.io/badge/Hugging_Face-FFD21E?style=for-the-badge&logo=huggingface&logoColor=black" alt="Hugging Face"> <img src="https://img.shields.io/badge/Claude_API-D97757?style=for-the-badge&logo=anthropic&logoColor=white" alt="Claude API"> <img src="https://img.shields.io/badge/NumPy-013243?style=for-the-badge&logo=numpy&logoColor=white" alt="NumPy">
 
 <sub><b>Data & Infrastructure</b></sub>
 
-<img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"> <img src="https://img.shields.io/badge/SearXNG-29ABE2?style=for-the-badge&logo=searxng&logoColor=white" alt="SearXNG"> <img src="https://img.shields.io/badge/LanceDB-333333?style=for-the-badge" alt="LanceDB"> <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite"> <img src="https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic"> <img src="https://img.shields.io/badge/HTTPX-0F766E?style=for-the-badge" alt="HTTPX"> <img src="https://img.shields.io/badge/structlog-5A5A5A?style=for-the-badge" alt="structlog"> <img src="https://img.shields.io/badge/trafilatura-5A5A5A?style=for-the-badge" alt="trafilatura"> <img src="https://img.shields.io/badge/Typst-239DAD?style=for-the-badge&logo=typst&logoColor=white" alt="Typst"> <img src="https://img.shields.io/badge/Matplotlib-11557C?style=for-the-badge" alt="Matplotlib">
+<img src="https://img.shields.io/badge/SearXNG-29ABE2?style=for-the-badge&logo=searxng&logoColor=white" alt="SearXNG"> <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"> <img src="https://img.shields.io/badge/HTTPX-0F766E?style=for-the-badge" alt="HTTPX"> <img src="https://img.shields.io/badge/trafilatura-5A5A5A?style=for-the-badge" alt="trafilatura"> <img src="https://img.shields.io/badge/LanceDB-333333?style=for-the-badge" alt="LanceDB"> <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite"> <img src="https://img.shields.io/badge/Pydantic-E92063?style=for-the-badge&logo=pydantic&logoColor=white" alt="Pydantic"> <img src="https://img.shields.io/badge/structlog-5A5A5A?style=for-the-badge" alt="structlog"> <img src="https://img.shields.io/badge/Typst-239DAD?style=for-the-badge&logo=typst&logoColor=white" alt="Typst"> <img src="https://img.shields.io/badge/Matplotlib-11557C?style=for-the-badge" alt="Matplotlib">
 
 <sub><b>Tooling</b></sub>
 
-<img src="https://img.shields.io/badge/uv-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv"> <img src="https://img.shields.io/badge/Typer-000000?style=for-the-badge&logo=typer&logoColor=white" alt="Typer"> <img src="https://img.shields.io/badge/Ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black" alt="Ruff"> <img src="https://img.shields.io/badge/mypy-2A6DB2?style=for-the-badge" alt="mypy"> <img src="https://img.shields.io/badge/pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest"> <img src="https://img.shields.io/badge/GNU_Make-A42E2B?style=for-the-badge&logo=gnu&logoColor=white" alt="GNU Make"> <img src="https://img.shields.io/badge/GitHub_Actions-2671E5?style=for-the-badge&logo=githubactions&logoColor=white" alt="GitHub Actions">
+<img src="https://img.shields.io/badge/uv-DE5FE9?style=for-the-badge&logo=uv&logoColor=white" alt="uv"> <img src="https://img.shields.io/badge/Ruff-D7FF64?style=for-the-badge&logo=ruff&logoColor=black" alt="Ruff"> <img src="https://img.shields.io/badge/mypy-2A6DB2?style=for-the-badge" alt="mypy"> <img src="https://img.shields.io/badge/pytest-0A9EDC?style=for-the-badge&logo=pytest&logoColor=white" alt="pytest"> <img src="https://img.shields.io/badge/pre--commit-FAB040?style=for-the-badge&logo=precommit&logoColor=black" alt="pre-commit"> <img src="https://img.shields.io/badge/Typer-000000?style=for-the-badge&logo=typer&logoColor=white" alt="Typer"> <img src="https://img.shields.io/badge/GNU_Make-A42E2B?style=for-the-badge&logo=gnu&logoColor=white" alt="GNU Make"> <img src="https://img.shields.io/badge/GitHub_Actions-2671E5?style=for-the-badge&logo=githubactions&logoColor=white" alt="GitHub Actions">
 
 </div>
 
@@ -57,7 +57,9 @@ flowchart LR
     V --> R(["Cited report<br/>markdown + PDF"])
 ```
 
-A 15-stage checkpointed pipeline. The engine model behind PLAN, GAP, and SYNTHESIZE is Qwen3-8B on your own GPU by default, or Claude in the assisted and premium modes; either way SearXNG and a polite fetcher gather sources, and the local GPU embeds, deduplicates, reranks, and triages them down to a token-budgeted evidence corpus. In local mode the 8B model writes each section from a per-section evidence slice with grammar-constrained output, and gap checks run on the already-resident 4B triage model so the loop never pays a model swap; in premium mode Claude writes over one prompt-cached corpus exactly as v0 did. VERIFY then scores every cited sentence against its cited chunks and rewrites or drops what the evidence does not support. A VRAM arbiter with a hard 6.5 GB budget owns all GPU residency so four models share one 8 GB card safely. Diagram, arbiter rules, and every configuration key: [docs/Architecture.md](docs/Architecture.md).
+A 15-stage checkpointed pipeline. The engine model behind **PLAN**, **GAP**, and **SYNTHESIZE** is **Qwen3-8B** on your own GPU by default, or Claude in the assisted and premium modes; either way SearXNG and a polite fetcher gather sources, and the local GPU embeds, deduplicates, reranks, and triages them down to a token-budgeted evidence corpus. The local models run as **Q4_K_M GGUF quantizations** (4-bit k-quant medium) via llama.cpp: the 8B writer at 16K context with flash attention and a q8_0-quantized KV cache, the 4B triage model at 8K context. The embedder (bge-m3) and the cross-encoder reranker (bge-reranker-v2-m3) run unquantized at fp16.
+
+In local mode the 8B writes each section from a **per-section evidence slice** with grammar-constrained output, and gap checks run on the already-resident 4B so the loop never pays a model swap; in premium mode Claude writes over one **prompt-cached corpus** exactly as v0 did. **VERIFY** then scores every cited sentence against its cited chunks and rewrites or drops what the evidence does not support. A **VRAM arbiter** with a hard 6.5 GB budget owns all GPU residency so four models share one 8 GB card safely. Diagram, arbiter rules, and every configuration key: [docs/Architecture.md](docs/Architecture.md).
 
 ## Run It
 
@@ -74,7 +76,14 @@ uv run quarry verify          # preflight check with remediation hints
 uv run quarry research "your topic"
 ```
 
-The report and its PDF land in `data/reports/`, with a cost ledger and a run manifest appended. `--engine premium` buys Claude-written prose at the measured $1.36 to $2.88; `quarry resume <run_id>` continues an interrupted run; `quarry inspect <run_id>` dumps stage-by-stage state. `make smoke-local` runs a $0 end-to-end rehearsal first if you want proof before a real topic, and `make smoke` does the same on the configured engine under a $2.00 cap. Every flag, engine, config knob, and operational caution, in one place: [docs/RunGuide.md](docs/RunGuide.md).
+That default run is the `local` engine: $0.00, no API key. To buy Claude reasoning instead, put `ANTHROPIC_API_KEY` in `.env` and pick the engine per run:
+
+```bash
+uv run quarry research "your topic" --engine assisted   # Haiku gap audits + polish, $0.02 to $0.12 measured
+uv run quarry research "your topic" --engine premium    # Claude plans, audits, writes; $1.36 to $2.88 measured
+```
+
+(or set it permanently with `engine.mode` in a config file). The report and its PDF land in `data/reports/`, with a cost ledger and a run manifest appended. `quarry resume <run_id>` continues an interrupted run; `quarry inspect <run_id>` dumps stage-by-stage state. `make smoke-local` runs a $0 end-to-end rehearsal first if you want proof before a real topic, and `make smoke` does the same on the configured engine under a $2.00 cap. Every flag, engine, config knob, and operational caution, in one place: [docs/RunGuide.md](docs/RunGuide.md).
 
 What $0.00 buys, verbatim from [a real local-engine run](pdf-reports/):
 
@@ -96,8 +105,15 @@ What $0.00 buys, verbatim from [a real local-engine run](pdf-reports/):
 
 Read [CLAUDE.md](CLAUDE.md) first: it carries the invariants (they are enforced by tests), the commit contract, and the working conventions. Run `make verify` before any PR: format, lint, type check, and the CPU-only test suite must pass without network or an API key.
 
-## License and Acknowledgements
+## Acknowledgements
+
+The v1 local-first direction is inspired by [local-deep-research](https://github.com/LearningCircuit/local-deep-research) (MIT), which showed how far a fully local research pipeline can go; Quarry-LDR shares no code with it and takes a framework-free path. Where Quarry-LDR goes further is rigor:
+
+- Every cited sentence must survive a cross-encoder entailment check before render; what the evidence does not support is rewritten or dropped.
+- The $0.00 default is enforced, not asserted: a ledger meters local calls exactly like API calls, with real token counts at zero price.
+- The whole stack, from search through an 8B writer to verification, fits one 8 GB laptop card under a hard VRAM budget with LRU eviction.
+- Every run checkpoints to SQLite, so interruptions resume from the last completed stage instead of starting over.
+
+## License
 
 MIT. See [LICENSE](LICENSE).
-
-The v1 local-first direction is inspired by [local-deep-research](https://github.com/LearningCircuit/local-deep-research) (MIT), which showed how far a fully local research pipeline can go; Quarry-LDR shares no code with it and takes a framework-free path. Where Quarry-LDR goes further is rigor: every cited sentence must survive a cross-encoder entailment check before render, the $0.00 default is enforced by a ledger that meters local calls exactly like API calls, and the whole stack, from search through an 8B writer to verification, fits one 8 GB laptop card under a hard VRAM budget.
