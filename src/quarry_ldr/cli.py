@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -19,7 +18,9 @@ from rich.console import Console
 
 from quarry_ldr import __version__
 from quarry_ldr.config import QuarryConfig, load_config
+from quarry_ldr.gpu.local_llm import LlamaServerError
 from quarry_ldr.logging import setup_logging
+from quarry_ldr.preflight import DOCKER_REMEDIATION, PreflightCheck, run_preflight
 
 app = typer.Typer(
     name="quarry",
@@ -51,12 +52,6 @@ def _main(
     """Quarry-LDR command line."""
 
 
-DOCKER_REMEDIATION = (
-    "Docker is not available. Install Docker Desktop (Windows/macOS) or Docker "
-    "Engine (Linux), start it, then re-run this command. SearXNG is only needed "
-    "for live research runs; tests and fixture runs never touch it."
-)
-
 ConfigOpt = Annotated[
     Path | None,
     typer.Option("--config", "-c", help="User config yaml layered over config/default.yaml."),
@@ -84,6 +79,34 @@ def _load(config: Path | None) -> QuarryConfig:
         raise typer.Exit(code=2) from exc
 
 
+_STATUS_MARKS = {
+    "ok": "[green]ok[/green]",
+    "missing": "[red]missing[/red]",
+    "skip": "[cyan]skip[/cyan]",
+}
+
+
+def _render_checks(checks: list[PreflightCheck], target: Console) -> int:
+    """Print each check and return how many are missing."""
+    failures = 0
+    for check in checks:
+        target.print(f"  {_STATUS_MARKS[check.status]:<20} {check.name}: {check.detail}")
+        if check.status == "missing":
+            failures += 1
+    return failures
+
+
+def _require_preflight(cfg: QuarryConfig) -> None:
+    """Exit cleanly if a setup gap would otherwise crash deep in the pipeline."""
+    failures = _render_checks(run_preflight(cfg), err_console)
+    if failures:
+        err_console.print(
+            f"[yellow]{failures} check(s) need attention; run `quarry verify` for the "
+            "full report.[/yellow]"
+        )
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def research(
     topic: Annotated[str, typer.Argument(help="Research topic for the report.")],
@@ -107,11 +130,16 @@ def research(
     if max_iterations is not None:
         cfg.run.max_iterations = max_iterations
     _apply_engine(cfg, engine)
+    _require_preflight(cfg)
     setup_logging(log_dir=cfg.run.data_dir / "logs", verbose=verbose)
 
     from quarry_ldr.pipeline.run import Orchestrator
 
-    result = asyncio.run(Orchestrator(cfg).research(topic))
+    try:
+        result = asyncio.run(Orchestrator(cfg).research(topic))
+    except LlamaServerError as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
     console.print(f"[green]run:[/green] {result.run_id}  [green]engine:[/green] {cfg.engine.mode}")
     console.print(f"[green]report:[/green] {result.report_path}")
     if result.pdf_path:
@@ -132,11 +160,16 @@ def resume(
 ) -> None:
     """Resume an interrupted run from its last completed stage."""
     cfg = _load(config)
+    _require_preflight(cfg)
     setup_logging(log_dir=cfg.run.data_dir / "logs", run_id=run_id, verbose=verbose)
 
     from quarry_ldr.pipeline.run import Orchestrator
 
-    result = asyncio.run(Orchestrator(cfg).resume(run_id))
+    try:
+        result = asyncio.run(Orchestrator(cfg).resume(run_id))
+    except LlamaServerError as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
     console.print(f"[green]report:[/green] {result.report_path}")
 
 
@@ -176,77 +209,8 @@ def runs(config: ConfigOpt = None) -> None:
 def verify(config: ConfigOpt = None) -> None:
     """Preflight: report which runtime pieces are present and how to fix gaps."""
     cfg = _load(config)
-    failures = 0
-
-    def check(name: str, ok: bool, detail: str) -> None:
-        nonlocal failures
-        mark = "[green]ok[/green]" if ok else "[red]missing[/red]"
-        console.print(f"  {mark:<20} {name}: {detail}")
-        if not ok:
-            failures += 1
-
     console.print(f"[bold]quarry preflight[/bold] (engine.mode={cfg.engine.mode})")
-    key = cfg.anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
-    if cfg.engine.mode == "local":
-        # Local runs make zero API calls; a missing key is not a failure.
-        detail = "found in environment" if key else "not needed for engine.mode=local"
-        console.print(f"  {'[cyan]skip[/cyan]':<20} anthropic api key: {detail}")
-    else:
-        check(
-            "anthropic api key",
-            bool(key),
-            "found in environment" if key else "set ANTHROPIC_API_KEY in .env (copy .env.example)",
-        )
-    docker = shutil.which("docker")
-    check("docker", docker is not None, docker or DOCKER_REMEDIATION)
-    check(
-        "searxng config",
-        (Path("docker") / "compose.yaml").is_file(),
-        "docker/compose.yaml present"
-        if (Path("docker") / "compose.yaml").is_file()
-        else "run from the repo root",
-    )
-
-    settings_path = Path("docker") / "searxng" / "settings.yml"
-    if settings_path.is_file():
-        import yaml
-
-        settings = yaml.safe_load(settings_path.read_text(encoding="utf-8")) or {}
-        formats = (settings.get("search") or {}).get("formats") or []
-        json_enabled = "json" in formats
-        check(
-            "searxng json format",
-            json_enabled,
-            f"'json' enabled under search.formats in {settings_path}"
-            if json_enabled
-            else f"add 'json' under search.formats in {settings_path}",
-        )
-
-    from quarry_ldr.gpu.local_llm import LlamaServerError, find_gguf, find_server_binary
-
-    try:
-        find_server_binary(cfg.run.models_dir)
-        find_gguf(cfg.run.models_dir, cfg.models.triage_gguf_file)
-        if cfg.engine.mode != "premium":
-            # Local and assisted synthesis need the synth GGUF too.
-            find_gguf(cfg.run.models_dir, cfg.models.synth_gguf_file)
-        check("local models", True, f"found under {cfg.run.models_dir}")
-    except LlamaServerError as exc:
-        check("local models", False, exc.remediation or str(exc))
-
-    try:
-        import torch
-
-        cuda = torch.cuda.is_available()
-        detail = (
-            f"{torch.cuda.get_device_name(0)}, capability {torch.cuda.get_device_capability(0)}"
-            if cuda
-            else "torch installed but CUDA unavailable; run scripts/verify_gpu.py"
-        )
-        check("gpu (torch+cuda)", cuda, detail)
-    except ImportError:
-        check("gpu (torch+cuda)", False, "install the GPU extra: uv sync --extra gpu")
-
+    failures = _render_checks(run_preflight(cfg), console)
     if failures:
         console.print(f"[yellow]{failures} check(s) need attention. Live runs may fail.[/yellow]")
         raise typer.Exit(code=1)
