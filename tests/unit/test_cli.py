@@ -146,3 +146,48 @@ def test_verify_skips_searxng_json_check_when_settings_file_absent(
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(app, ["verify"])
     assert "searxng json format" not in result.output
+
+
+def test_research_fails_preflight_cleanly_instead_of_entering_the_pipeline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # An empty cwd has no models/ directory: this used to crash three stack
+    # frames deep inside the arbiter with a raw traceback (issue #1). It must
+    # now fail at the CLI boundary with the same remediation `verify` prints,
+    # and never reach the orchestrator.
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(app, ["research", "some topic"])
+    assert result.exit_code == 1
+    assert "local models" in result.output
+    assert "download_models.py" in result.output
+    assert "run_created" not in result.output
+
+
+def test_research_reports_llama_server_error_cleanly(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A LlamaServerError raised mid-run (e.g. the server dies after preflight
+    # passed) must print its remediation, not leak a raw traceback: the CLI
+    # module's own docstring promises "a clear message instead of a
+    # traceback" for exactly this kind of expected setup failure.
+    monkeypatch.chdir(tmp_path)
+    from quarry_ldr.gpu.local_llm import LlamaServerError
+    from quarry_ldr.preflight import PreflightCheck
+
+    monkeypatch.setattr(
+        "quarry_ldr.cli.run_preflight",
+        lambda cfg: [PreflightCheck("stub", "ok", "stubbed for this test")],
+    )
+
+    class _FailingOrchestrator:
+        def __init__(self, cfg: object) -> None:
+            pass
+
+        async def research(self, topic: str) -> object:
+            raise LlamaServerError("server died", "restart it")
+
+    monkeypatch.setattr("quarry_ldr.pipeline.run.Orchestrator", _FailingOrchestrator)
+
+    result = runner.invoke(app, ["research", "some topic"])
+    assert result.exit_code == 1
+    assert "restart it" in result.output
