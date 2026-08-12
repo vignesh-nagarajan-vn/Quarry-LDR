@@ -7,7 +7,7 @@ Everything needed to run Quarry-LDR, on every engine, with every knob explained.
 | Requirement | Detail |
 | --- | --- |
 | GPU | NVIDIA, compute capability 8.0 or newer, 8 GB VRAM or more recommended. The design target is an RTX 5060 Mobile (Blackwell, `sm_120`), which needs a CUDA 12.8 capable driver; the project pins the cu128 PyTorch wheel index. |
-| Docker | Docker Desktop (Windows/macOS) or Docker Engine (Linux), for the local SearXNG search container. Everything except live search works without it. |
+| Docker | Docker Desktop (Windows/macOS) or Docker Engine (Linux), for the bundled local SearXNG container. Not needed when `search.searxng_url` points at an existing SearXNG instance; preflight skips the Docker check then. Everything except live search works without it. |
 | Python | 3.12. `uv` manages the environment; the bootstrap script installs `uv` itself if missing. |
 | Disk | Roughly 12 GB for local models: the llama-server build, the Qwen3 4B and 8B GGUFs, and the Hugging Face cache for the embedder and reranker. |
 | API key | Only for the `assisted` and `premium` engines. The default `local` engine makes zero API calls and never needs one. |

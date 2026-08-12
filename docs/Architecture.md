@@ -144,7 +144,7 @@ Notes that matter in practice:
 - Local calls are ledgered like API calls, at zero price, under `local/<gguf-file>` model ids with real token counts from llama-server's usage block. The $0.00 is enforced by the same accounting that meters premium, not asserted.
 - In local and assisted modes the synth server starts before PLAN, so GPU work begins at the first stage. Local GAP runs on the triage 4B while it is already resident, costing zero llama-server swaps per loop iteration.
 - The assisted polish pass is guarded: the citation-marker multiset must survive exactly and the section delimiters must round-trip, else the polish result is discarded with a warning and the local draft stands.
-- `quarry verify` (preflight) is engine-aware: a missing API key is a skip line in local mode and a failure otherwise; the synth GGUF is required unless the engine is premium.
+- `quarry verify` (preflight) is engine-aware: a missing API key is a skip line in local mode and a failure otherwise; the synth GGUF is required unless the engine is premium; and the Docker check is a skip rather than a failure when `search.searxng_url` points at a non-local instance, since Docker only backs the bundled SearXNG container.
 
 ## The VRAM arbiter
 
