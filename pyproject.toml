@@ -1,6 +1,6 @@
 [project]
 name = "quarry-ldr"
-version = "1.0.0"
+version = "1.0.1"
 description = "Local deep research: a local GPU compresses the web into dense evidence and, by default, writes and verifies the cited report itself. Claude remains an optional engine."
 readme = "README.md"
 requires-python = ">=3.12"

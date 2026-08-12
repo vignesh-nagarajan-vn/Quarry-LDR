@@ -8,4 +8,4 @@ sentence before render. ``engine.mode`` swaps the reasoning tier onto
 Claude (assisted or premium) without touching the rest of the pipeline.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
