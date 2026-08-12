@@ -39,7 +39,7 @@ uv run quarry verify          # preflight with exact remediation for anything mi
 
 `download_models.py` fetches the llama-server release build (with its CUDA runtime bundle on Windows), the triage GGUF (Qwen3 4B), and the synth GGUF (Qwen3 8B). Both GGUFs download by default so a later engine switch never requires re-running setup; `--skip-llama`, `--skip-gguf`, and `--skip-synth-gguf` opt out for constrained disks. The embedder and reranker land in the Hugging Face cache on first GPU use (or run `scripts/bench_vram.py` once to prefetch them).
 
-`quarry verify` is engine-aware: under the default `local` engine a missing API key prints as a skip line, not a failure, and the synth GGUF is required unless the engine is `premium`.
+`quarry verify` is engine-aware: under the default `local` engine a missing API key prints as a skip line, not a failure, and the synth GGUF is required unless the engine is `premium`. `research` and `resume` run these same checks first and stop with the remediation if anything required is missing, so a setup gap fails fast instead of surfacing deep inside the pipeline.
 
 ## Running a Report
 

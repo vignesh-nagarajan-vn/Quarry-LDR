@@ -4,6 +4,7 @@ Symptoms observed while building and running Quarry-LDR, with their causes and e
 
 | Symptom | Cause and fix |
 | --- | --- |
+| `quarry research` or `resume` exits at once, listing missing pieces | research and resume run the same preflight `quarry verify` does and stop before the pipeline when anything required is missing (local models, Docker for the bundled SearXNG, or an API key for the paid engines), so you get the exact remediation instead of a traceback deep in the run. Fix the listed items, or run `quarry verify` for the full report. |
 | `verify_gpu.py` fails on capability | Wheels lack kernels for your GPU. For `sm_120` (Blackwell, the RTX 5060 Mobile design target) install the cu128 index wheels: `uv sync --extra gpu` uses it already; check your driver supports CUDA 12.8. |
 | SearXNG returns HTML instead of JSON | The `json` format is not enabled. Confirm `docker/searxng/settings.yml` lists `json` under `search.formats`, then `quarry searxng down && quarry searxng up`. |
 | llama-server fails to start, port in use | Another process holds port 8555 (triage) or 8556 (synth). Change `triage.port` / `synth.port` or free the port; the two servers must not share one. |

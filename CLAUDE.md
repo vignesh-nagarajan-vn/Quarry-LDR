@@ -42,6 +42,7 @@ The v0 hybrid design is preserved on branch `archive/v0-hybrid-api` (released as
 | `src/quarry_ldr/report/` | Render + citations; every claim resolves to URL + chunk anchor |
 | `src/quarry_ldr/report/pdf.py`, `charts.py` | Branded Typst PDF + matplotlib run charts, fail-soft |
 | `src/quarry_ldr/cli.py` | Typer CLI: research, resume, inspect, runs, verify, searxng |
+| `src/quarry_ldr/preflight.py` | Shared setup checks (models, Docker, API key, GPU); `verify` prints them, research/resume gate on them |
 | `scripts/` | bootstrap, model download, GPU verify, VRAM bench, fixtures, audit, smoke |
 | `config/default.yaml` | Every default, mirrored byte-for-meaning in config.py (a drift test enforces it) |
 | `docker/` | SearXNG compose file and settings (JSON format enabled) |
