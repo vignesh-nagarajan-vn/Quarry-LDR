@@ -24,6 +24,19 @@ DOCKER_REMEDIATION = (
 )
 
 
+def _repo_root() -> Path:
+    """Repo root that ships ``docker/`` and ``config/``.
+
+    Anchored on this file's location, not the process cwd, so the SearXNG
+    config checks validate the compose file ``quarry searxng up`` would
+    actually launch. ``cli._compose`` and ``config.default_config_path``
+    resolve the same way (``parents[2]``); preflight used a cwd-relative path
+    and so reported the bundled config missing whenever ``quarry`` ran from
+    anywhere but the repo root.
+    """
+    return Path(__file__).resolve().parents[2]
+
+
 @dataclass
 class PreflightCheck:
     """One preflight line: a name, a status, and the remediation detail."""
@@ -58,16 +71,17 @@ def run_preflight(cfg: QuarryConfig) -> list[PreflightCheck]:
         PreflightCheck("docker", "ok" if docker else "missing", docker or DOCKER_REMEDIATION)
     )
 
-    compose_present = (Path("docker") / "compose.yaml").is_file()
+    compose_path = _repo_root() / "docker" / "compose.yaml"
+    compose_present = compose_path.is_file()
     checks.append(
         PreflightCheck(
             "searxng config",
             "ok" if compose_present else "missing",
-            "docker/compose.yaml present" if compose_present else "run from the repo root",
+            f"{compose_path} present" if compose_present else f"expected at {compose_path}",
         )
     )
 
-    settings_path = Path("docker") / "searxng" / "settings.yml"
+    settings_path = _repo_root() / "docker" / "searxng" / "settings.yml"
     if settings_path.is_file():
         import yaml
 
