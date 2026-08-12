@@ -93,7 +93,10 @@ def test_premium_mode_does_not_require_synth_gguf(
 def test_searxng_json_format_check_only_runs_when_settings_file_present(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    monkeypatch.chdir(tmp_path)
+    # Preflight resolves the bundled docker/ config relative to the repo root,
+    # not the cwd; point that anchor at an empty tmp dir so this test controls
+    # whether the settings file exists.
+    monkeypatch.setattr("quarry_ldr.preflight._repo_root", lambda: tmp_path)
     cfg = QuarryConfig(_env_file=None)
     checks = run_preflight(cfg)
     assert all(c.name != "searxng json format" for c in checks)
@@ -106,3 +109,16 @@ def test_searxng_json_format_check_only_runs_when_settings_file_present(
     checks = run_preflight(cfg)
     format_check = _by_name(checks, "searxng json format")
     assert format_check.status == "missing"
+
+
+def test_searxng_config_resolved_from_repo_root_not_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The bug: the compose/settings checks used cwd-relative paths, so running
+    # quarry from anywhere but the repo root falsely reported the bundled config
+    # missing even though cli._compose launches the repo-anchored file. From an
+    # unrelated cwd the real repo config must still resolve.
+    monkeypatch.chdir(tmp_path)
+    config_check = _by_name(run_preflight(QuarryConfig(_env_file=None)), "searxng config")
+    assert config_check.status == "ok"
+    assert "compose.yaml" in config_check.detail
