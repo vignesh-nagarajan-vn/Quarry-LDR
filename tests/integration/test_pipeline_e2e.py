@@ -537,3 +537,61 @@ async def test_assisted_engine_routes_gap_and_polish_to_the_cheap_model(
     report = Path(result.report_path).read_text(encoding="utf-8")
     assert re.search(r"citing \[\d+\]", report)
     assert "## References" in report
+
+
+def _references_block(report: str) -> str:
+    """The '## References' section only, excluding run-id/timestamped tails."""
+    return report.split("## References", 1)[1].split("## Cost ledger", 1)[0]
+
+
+async def test_resume_after_synthesize_keeps_synthesis_citation_numbering(
+    cfg: QuarryConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resuming after SYNTHESIZE completed must rebuild citation numbering from
+    the same corpus-budget subset synthesis numbered against, not the full
+    evidence set. Under a budget that trims evidence, rebuilding from the full
+    set renumbers the references the persisted draft's [n] markers resolve to.
+    """
+    # Low enough that select_evidence drops evidence: the only regime where the
+    # resume rebuild's input set (selected vs full) can change the numbering.
+    cfg.report.corpus_budget_tokens = 1200
+
+    # Baseline: an uninterrupted run under the same budget.
+    with respx.mock:
+        _mock_corpus_routes()
+        baseline = await _orchestrator(cfg, FakeProvider()).research("resume numbering baseline")
+    baseline_refs = _references_block(Path(baseline.report_path).read_text(encoding="utf-8"))
+    n_refs = len(re.findall(r"(?m)^\[\d+\]", baseline_refs))
+    # The budget really trimmed: fewer cited sources than distinct evidence
+    # chunks, so the resume rebuild's input set is not a no-op.
+    assert 0 < n_refs < baseline.n_chunks_evidence
+
+    # Crash in VERIFY (immediately after SYNTHESIZE persists), then resume.
+    import quarry_ldr.pipeline.run as run_module
+
+    real_verify = run_module.verify_report
+    state = {"first": True}
+
+    async def _flaky_verify(*args: Any, **kwargs: Any) -> Any:
+        if state["first"]:
+            state["first"] = False
+            raise RuntimeError("synthetic crash after synthesize")
+        return await real_verify(*args, **kwargs)
+
+    monkeypatch.setattr(run_module, "verify_report", _flaky_verify)
+
+    with respx.mock:
+        _mock_corpus_routes()
+        with pytest.raises(RuntimeError, match="synthetic crash after synthesize"):
+            await _orchestrator(cfg, FakeProvider()).research("resume numbering case")
+        async with RunStore(cfg.run.data_dir / "runs.db") as store:
+            run_id = next(
+                r.run_id for r in await store.list_runs() if r.topic == "resume numbering case"
+            )
+            synth = await store.get_stage(run_id, Stage.SYNTHESIZE)
+            assert synth is not None and synth.status is StageStatus.COMPLETED
+        resumed = await _orchestrator(cfg, FakeProvider()).resume(run_id)
+
+    resumed_refs = _references_block(Path(resumed.report_path).read_text(encoding="utf-8"))
+    # The rebuilt numbering equals what synthesis assigned: references identical.
+    assert resumed_refs == baseline_refs

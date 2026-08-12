@@ -46,6 +46,7 @@ from quarry_ldr.pipeline.synthesize import (
     DraftReport,
     build_evidence_corpus,
     polish_draft,
+    select_evidence,
     synthesize,
     synthesize_local,
 )
@@ -477,8 +478,15 @@ class Orchestrator:
             persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
             draft = DraftReport.model_validate(synth_payload["draft"])
             if len(citations) == 0:
-                # Resumed past synthesis: rebuild deterministic numbering.
-                build_evidence_corpus(evidence, citations)
+                # Resumed past synthesis: rebuild deterministic numbering from
+                # the SAME budget-selected subset synthesis numbered against
+                # (both synthesize paths number select_evidence(...), not the
+                # full set). Rebuilding from full evidence would interleave
+                # never-cited chunks and shift every number, so the persisted
+                # draft's [n] markers would resolve to the wrong sources.
+                build_evidence_corpus(
+                    select_evidence(evidence, self.cfg.report.corpus_budget_tokens), citations
+                )
 
             # ---- VERIFY (claim-vs-cited-chunk entailment, every engine mode)
             verify_summary = VerificationSummary()
