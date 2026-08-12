@@ -113,6 +113,7 @@ def test_verify_searxng_json_format_enabled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("quarry_ldr.preflight._repo_root", lambda: tmp_path)
     searxng_dir = tmp_path / "docker" / "searxng"
     searxng_dir.mkdir(parents=True)
     (searxng_dir / "settings.yml").write_text(
@@ -128,6 +129,7 @@ def test_verify_searxng_json_format_disabled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("quarry_ldr.preflight._repo_root", lambda: tmp_path)
     searxng_dir = tmp_path / "docker" / "searxng"
     searxng_dir.mkdir(parents=True)
     (searxng_dir / "settings.yml").write_text(
@@ -144,6 +146,7 @@ def test_verify_skips_searxng_json_check_when_settings_file_absent(
     tmp_path: Path,
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("quarry_ldr.preflight._repo_root", lambda: tmp_path)
     result = runner.invoke(app, ["verify"])
     assert "searxng json format" not in result.output
 
