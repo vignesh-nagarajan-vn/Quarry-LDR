@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 from pathlib import Path
 
@@ -122,3 +123,29 @@ def test_searxng_config_resolved_from_repo_root_not_cwd(
     config_check = _by_name(run_preflight(QuarryConfig(_env_file=None)), "searxng config")
     assert config_check.status == "ok"
     assert "compose.yaml" in config_check.detail
+
+
+def test_docker_skipped_when_searxng_url_is_remote(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # Docker only backs the bundled local SearXNG; a remote search.searxng_url
+    # needs none, so a missing docker binary must not block the run.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+    cfg = QuarryConfig(_env_file=None)
+    cfg.search.searxng_url = "https://searxng.example.net"
+    docker_check = _by_name(run_preflight(cfg), "docker")
+    assert docker_check.status == "skip"
+    assert "searxng.example.net" in docker_check.detail
+
+
+def test_docker_required_when_searxng_url_is_local(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The default localhost SearXNG still needs Docker: a missing binary stays
+    # a blocking failure, unchanged.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+    docker_check = _by_name(run_preflight(QuarryConfig(_env_file=None)), "docker")
+    assert docker_check.status == "missing"
+    assert "Docker is not available" in docker_check.detail

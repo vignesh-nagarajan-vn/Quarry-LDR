@@ -13,6 +13,7 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from quarry_ldr.config import QuarryConfig
 from quarry_ldr.gpu.local_llm import LlamaServerError, find_gguf, find_server_binary
@@ -66,10 +67,23 @@ def run_preflight(cfg: QuarryConfig) -> list[PreflightCheck]:
             )
         )
 
+    # Docker is only needed to run the bundled local SearXNG. A run pointed at
+    # an already-running instance elsewhere (search.searxng_url) needs no
+    # Docker, so the check is a skip there, never a blocking failure.
+    searxng_host = urlsplit(cfg.search.searxng_url).hostname or ""
     docker = shutil.which("docker")
-    checks.append(
-        PreflightCheck("docker", "ok" if docker else "missing", docker or DOCKER_REMEDIATION)
-    )
+    if searxng_host not in {"localhost", "127.0.0.1", "::1", ""}:
+        checks.append(
+            PreflightCheck(
+                "docker",
+                "skip",
+                f"not needed; search.searxng_url points at {cfg.search.searxng_url}",
+            )
+        )
+    else:
+        checks.append(
+            PreflightCheck("docker", "ok" if docker else "missing", docker or DOCKER_REMEDIATION)
+        )
 
     compose_path = _repo_root() / "docker" / "compose.yaml"
     compose_present = compose_path.is_file()
