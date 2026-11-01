@@ -31,6 +31,7 @@ KEY_FINDINGS_TITLE = "Key findings"
 GAPS_TITLE = "What we could not establish"
 MIN_FINDINGS = 5
 MAX_FINDINGS = 8
+_MAX_OPEN_QUERIES = 5
 _BULLET = re.compile(r"^- (?!\*\*(?:High|Medium|Low) confidence)(.*)$")
 
 
@@ -156,7 +157,13 @@ def label_findings(
 
 
 def gaps_section(plan: ResearchPlan, gap: GapAnalysis | None) -> ReportSection | None:
-    """Uncovered sub-questions from the final GAP pass; None only when no GAP ran."""
+    """What the final GAP pass left open; None only when no GAP ran.
+
+    Besides uncovered sub-questions, this lists the searches an unsaturated
+    final pass still asked for. The live 4B marked every sub-question covered
+    while asking for pilot efficiency data no source had, so "covered" alone
+    cannot justify telling the reader that everything was answered.
+    """
     if gap is None:
         return None
     by_id = {sq.id: sq for sq in plan.sub_questions}
@@ -170,6 +177,11 @@ def gaps_section(plan: ResearchPlan, gap: GapAnalysis | None) -> ReportSection |
         lines.append(
             f"- **{sub_question.question}** The sources reviewed did not establish this{detail}"
         )
+    if not gap.saturated:
+        for query in gap.new_queries[:_MAX_OPEN_QUERIES]:
+            wanted = strip_markers(query).strip().rstrip(".")
+            if wanted:
+                lines.append(f"- **Still open after the final search:** {wanted}.")
     if not lines:
         lines = [
             "The final coverage check found every sub-question answered by the sources reviewed."

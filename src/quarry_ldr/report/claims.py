@@ -23,7 +23,8 @@ _GAP_NOTE = re.compile(
     r"\b(?:missing|lack|lacks|absent|unavailable|insufficient|silent|limited|not (?:provide|"
     r"report|address|cover|include|available|establish|contain|quantify)|does not|do not|did not|"
     r"no (?:data|evidence|figures?|information))\b|"
-    r"\b(?:could not be (?:established|confirmed|verified)|remains? (?:unclear|unknown|"
+    r"\b(?:still open after the final search|"
+    r"could not be (?:established|confirmed|verified)|remains? (?:unclear|unknown|"
     r"unresolved)|not (?:publicly )?(?:reported|available|disclosed)|sources? (?:disagree|conflict))\b",
     re.IGNORECASE,
 )

@@ -148,16 +148,33 @@ def build_evidence_corpus(evidence: list[TriagedChunk], citations: CitationIndex
 _MAX_TITLE_CHARS = 60
 _MAX_TITLE_WORDS = 8
 _DANGLING = frozenset({"a", "an", "and", "at", "by", "for", "in", "of", "on", "or", "the", "to"})
+_QUESTION_OPENING = re.compile(
+    r"^(?:what|which|how|why|where|when|who)\s+"
+    r"(?:(?:are|is|do|does|did|can|could|will|would|should|has|have|was|were)\s+)?(?:the\s+)?",
+    re.IGNORECASE,
+)
+# Drafts aim above the configured minimum: VERIFY removes sentences afterward,
+# and the first live run lost enough to land at 2,780 words against a 3,000 floor.
+_LENGTH_MARGIN = 1.25
 
 
 def _fallback_title(question: str) -> str:
-    """A question cut at a word boundary, never ending on a dangling word."""
-    words = question.rstrip("?").split()
+    """A question reworded as a noun phrase. When it must be cut, the cut falls
+    before its last trailing phrase, so it never stops mid-phrase."""
+    words = _QUESTION_OPENING.sub("", question.rstrip("?")).split() or question.rstrip("?").split()
+    cut = False
     while len(" ".join(words)) > _MAX_TITLE_CHARS:
         words.pop()
+        cut = True
+    if cut:
+        for index in range(len(words) - 1, 0, -1):
+            if words[index].lower() in _DANGLING:
+                words = words[:index]
+                break
     while len(words) > 1 and words[-1].lower() in _DANGLING:
         words.pop()
-    return " ".join(words)
+    title = " ".join(words)
+    return title[:1].upper() + title[1:]
 
 
 def _valid_title(title: str) -> bool:
@@ -169,30 +186,58 @@ def _valid_title(title: str) -> bool:
     )
 
 
+def _assign_once(plan: ResearchPlan) -> list[SectionPlan]:
+    """The proposed sections with every sub-question in exactly one of them.
+
+    The last section to list an id keeps it, unknown ids go, a section left
+    empty goes, and a sub-question nobody listed joins the section holding the
+    one before it. The live 8B grouped well but ran each section's last ids
+    into the next one, which named them better, and missed one id; rejecting
+    that threw away every good title it had written.
+    """
+    ids = [sq.id for sq in plan.sub_questions]
+    last_listed: dict[str, int] = {}
+    for position, proposed in enumerate(plan.sections):
+        last_listed.update((i, position) for i in proposed.sub_question_ids if i in ids)
+    owner: dict[str, SectionPlan] = {}
+    sections: list[SectionPlan] = []
+    for position, proposed in enumerate(plan.sections):
+        kept = [
+            i for i in dict.fromkeys(proposed.sub_question_ids) if last_listed.get(i) == position
+        ]
+        if kept:
+            section = SectionPlan(title=proposed.title.strip(), sub_question_ids=kept)
+            sections.append(section)
+            owner.update(dict.fromkeys(kept, section))
+    if not sections:
+        return []
+    for index, sq_id in enumerate(ids):
+        if sq_id not in owner:
+            section = owner[ids[index - 1]] if index else sections[0]
+            section.sub_question_ids.append(sq_id)
+            owner[sq_id] = section
+    return sections
+
+
 def section_groups(plan: ResearchPlan, max_body: int) -> list[SectionPlan]:
     """The plan's own sections when code accepts them, else a deterministic split.
 
-    Accepted only if every sub-question appears exactly once, no unknown id
-    appears, the count fits ``max_body``, and every title is short, unique,
-    and not a question. Anything else falls back to consecutive groups.
+    Code assigns every sub-question to exactly one section first. The result
+    is accepted only if the count fits ``max_body`` and every title is short,
+    unique, and not a question. Anything else falls back to consecutive groups.
     """
     ids = [sq.id for sq in plan.sub_questions]
-    proposed = plan.sections
-    assigned = [sq_id for section in proposed for sq_id in section.sub_question_ids]
-    titles = [section.title.strip() for section in proposed]
+    proposed = _assign_once(plan)
+    titles = [section.title for section in proposed]
     if (
         proposed
         and len(proposed) <= max_body
-        and sorted(assigned) == sorted(ids)
         and all(_valid_title(title) for title in titles)
         and len({title.lower() for title in titles}) == len(titles)
     ):
-        return [
-            SectionPlan(title=title, sub_question_ids=list(section.sub_question_ids))
-            for title, section in zip(titles, proposed, strict=True)
-        ]
-    if proposed:
-        logger.warning("plan_sections_rejected", n_proposed=len(proposed))
+        return proposed
+    if plan.sections:
+        logger.warning("plan_sections_rejected", n_proposed=len(plan.sections))
     by_id = {sq.id: sq for sq in plan.sub_questions}
     per_group = max(1, -(-len(ids) // max_body))  # ceil division; consecutive ids stay together
     return [
@@ -207,7 +252,8 @@ def section_groups(plan: ResearchPlan, max_body: int) -> list[SectionPlan]:
 def section_word_range(cfg: QuarryConfig, n_sections: int) -> tuple[int, int]:
     """Per-section word bounds that put the report inside the configured total."""
     n = max(n_sections, 1)
-    return cfg.report.target_words_min // n, cfg.report.target_words_max // n
+    high = cfg.report.target_words_max // n
+    return min(int(cfg.report.target_words_min * _LENGTH_MARGIN) // n, high), high
 
 
 def plan_sections(plan: ResearchPlan, cfg: QuarryConfig) -> list[SectionBrief]:

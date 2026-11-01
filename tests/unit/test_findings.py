@@ -23,6 +23,7 @@ from quarry_ldr.pipeline.plan import ResearchPlan, SubQuestion
 from quarry_ldr.pipeline.synthesize import DraftReport, ReportSection
 from quarry_ldr.providers.base import Provider
 from quarry_ldr.report.citations import CitationIndex
+from quarry_ldr.report.claims import is_factual
 
 # Citation n points at site s<n>.example, except 4 and 5, which share s4.
 SITES = ["s1", "s2", "s3", "s4", "s4", "s6"]
@@ -157,6 +158,21 @@ def test_gaps_section_lists_only_uncovered_questions() -> None:
         "- **Q2?** The sources reviewed did not establish this: plant costs.",
         "- **Q3?** The sources reviewed did not establish this.",
     ]
+
+
+def test_an_unsaturated_final_pass_lists_what_it_still_asked_for() -> None:
+    gap = GapAnalysis(
+        saturated=False,
+        assessments=[CoverageAssessment(sub_question_id="sq01", covered=True)],
+        new_queries=["pilot efficiency data [3].", "", *[f"query {i}" for i in range(9)]],
+    )
+    section = gaps_section(_plan(), gap)
+    assert section is not None
+    lines = section.markdown.splitlines()
+    assert lines[0] == "- **Still open after the final search:** pilot efficiency data."
+    assert len(lines) == 4  # five queries at most, one of them empty
+    assert not is_factual(lines[1] + " with enough further words to be long")  # a labeled gap note
+    assert "every sub-question answered" not in section.markdown
 
 
 def test_full_coverage_says_so_and_no_gap_pass_means_no_section() -> None:

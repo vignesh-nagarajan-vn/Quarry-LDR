@@ -11,7 +11,9 @@ from quarry_ldr.report.cleanup import (
     fix_markers,
     normalize_markers,
     split_walls,
+    strip_conflict_denials,
     strip_question_leaks,
+    strip_title_headings,
 )
 
 
@@ -121,6 +123,46 @@ def test_clean_draft_runs_every_rule_and_counts() -> None:
     assert counts.markers_stripped == 1
     assert counts.question_leaks_removed == 2
     assert counts.repeats_dropped == 1
+
+
+def test_subheadings_repeating_the_section_title_are_removed() -> None:
+    text = "### Primary challenges\n\nBody text.\n\n### Different heading\n\nMore."
+    assert strip_title_headings(text, "Primary Challenges") == (
+        "\nBody text.\n\n### Different heading\n\nMore.",
+        1,
+    )
+
+
+def test_uncited_conflict_denials_are_removed_and_real_text_stays() -> None:
+    denial = "The sources reviewed do not provide conflicting evidence on these factors."
+    text = f"Costs fell [1]. {denial} Plants grew [2]."
+    assert strip_conflict_denials(text) == ("Costs fell [1]. Plants grew [2].", 1)
+
+
+def test_conflict_rule_leaves_other_sentences_alone() -> None:
+    kept = [
+        "Studies do not contradict the 2024 figure [3].",  # cited, so the evidence decides
+        "There was no conflict of interest at the plant.",  # not about the sources
+        "- The sources reviewed show no disagreement.",  # lists are not prose
+    ]
+    for text in kept:
+        assert strip_conflict_denials(text) == (text, 0)
+
+
+def test_clean_draft_counts_the_new_rules() -> None:
+    draft = DraftReport(
+        topic="t",
+        sections=[
+            ReportSection(
+                title="Costs",
+                markdown="### Costs\n\nCosts fell [1]. The evidence shows no conflicting data.",
+            )
+        ],
+    )
+    cleaned, counts = clean_draft(draft, _index(1), [], 160)
+    assert cleaned.sections[0].markdown == "Costs fell [1]."
+    assert counts.title_headings_removed == 1
+    assert counts.conflict_denials_removed == 1
 
 
 def test_tables_and_rules_survive_leak_stripping() -> None:

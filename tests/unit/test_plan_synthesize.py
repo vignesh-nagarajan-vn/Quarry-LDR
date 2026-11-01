@@ -119,7 +119,7 @@ def test_plan_sections_shape_and_bounds(cfg: QuarryConfig) -> None:
     briefs = plan_sections(make_plan_obj(8), cfg)
     assert len(briefs) == 8  # body only: findings, gaps, and sources come later
     assert briefs[0].sub_question_ids == ["sq01"]
-    assert "Write 375 to 750 words." in briefs[0].instructions
+    assert "Write 468 to 750 words." in briefs[0].instructions
 
     cfg.report.max_sections = 6
     briefs = plan_sections(make_plan_obj(12), cfg)
@@ -344,12 +344,64 @@ def test_plan_sections_brief_uses_the_short_titles(cfg: QuarryConfig) -> None:
     assert "Question 6 about the pilot?; Question 7" in briefs[2].instructions
 
 
+def test_overlapping_plan_sections_keep_their_titles_and_each_id_once() -> None:
+    # The shape the live 8B returned: good titles, each section's last ids
+    # running into the next, one id missed.
+    sections = [
+        ("Chemistry", ["sq01", "sq03"]),
+        ("Research", ["sq03", "sq04", "sq99"]),
+        ("Costs", ["sq05", "sq06"]),
+        ("Deployment", ["sq06", "sq07", "sq08"]),
+    ]
+    groups = section_groups(_with_sections(make_plan_obj(8), sections), max_body=10)
+    assert [(g.title, g.sub_question_ids) for g in groups] == [
+        ("Chemistry", ["sq01", "sq02"]),  # sq02 joins the section holding sq01
+        ("Research", ["sq03", "sq04"]),
+        ("Costs", ["sq05"]),
+        ("Deployment", ["sq06", "sq07", "sq08"]),
+    ]
+    assigned = sorted(sq for g in groups for sq in g.sub_question_ids)
+    assert assigned == [f"sq{i:02d}" for i in range(1, 9)]
+
+
+def test_a_section_every_id_of_which_is_claimed_later_is_dropped() -> None:
+    sections = [("Early", ["sq01"]), ("Late", [f"sq{i:02d}" for i in range(1, 9)])]
+    groups = section_groups(_with_sections(make_plan_obj(8), sections), max_body=10)
+    assert [g.title for g in groups] == ["Late"]
+
+
+def test_a_first_sub_question_nobody_listed_joins_the_first_section() -> None:
+    sections = [("Later", ["sq02", "sq03", "sq04", "sq05", "sq06", "sq07", "sq08"])]
+    groups = section_groups(_with_sections(make_plan_obj(8), sections), max_body=10)
+    assert groups[0].sub_question_ids[-1] == "sq01"
+
+
+def test_sections_listing_no_known_id_fall_back() -> None:
+    plan = _with_sections(make_plan_obj(8), [("Ghost", ["sq99"])])
+    assert section_groups(plan, max_body=10)[0].title == "Question 1 about the pilot"
+
+
+@pytest.mark.parametrize(
+    ("question", "title"),
+    [
+        ("What are the key chemical reactions in iron-air batteries?", None),
+        (
+            "What are the primary challenges in the commercialization of iron-air batteries?",
+            "Primary challenges in the commercialization",
+        ),
+        ("How do sodium-ion cells age in storage?", "Sodium-ion cells age in storage"),
+    ],
+)
+def test_fallback_titles_read_as_noun_phrases(question: str, title: str | None) -> None:
+    plan = make_plan_obj(8)
+    plan.sub_questions[0] = plan.sub_questions[0].model_copy(update={"question": question})
+    got = section_groups(plan, max_body=10)[0].title
+    assert got == (title or "Key chemical reactions in iron-air batteries")
+
+
 @pytest.mark.parametrize(
     "sections",
     [
-        [("A", ["sq01", "sq02", "sq03", "sq04"]), ("B", ["sq05", "sq06", "sq07"])],  # sq08 missing
-        [*GOOD_SECTIONS[:2], ("C", ["sq06", "sq07", "sq08", "sq01"])],  # sq01 twice
-        [*GOOD_SECTIONS[:2], ("C", ["sq06", "sq07", "sq08", "sq99"])],  # unknown id
         [*GOOD_SECTIONS[:2], ("What do the projects cost?", ["sq06", "sq07", "sq08"])],
         [*GOOD_SECTIONS[:2], ("Costs", ["sq06", "sq07", "sq08"])],  # duplicate title
         [*GOOD_SECTIONS[:2], ("x" * 61, ["sq06", "sq07", "sq08"])],
@@ -381,4 +433,7 @@ def test_fallback_titles_never_end_on_a_dangling_word() -> None:
 
 
 def test_section_word_range_splits_the_report_band(cfg: QuarryConfig) -> None:
-    assert section_word_range(cfg, 6) == (500, 1000)
+    assert section_word_range(cfg, 6) == (625, 1000)  # aims above the floor VERIFY cuts into
+    cfg.report.target_words_max = 3100
+    low, high = section_word_range(cfg, 6)
+    assert low == high == 516  # never asks for a floor above the ceiling

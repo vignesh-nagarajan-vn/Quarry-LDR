@@ -31,6 +31,13 @@ _MAX_RANGE = 6
 # Shorter sentences repeat legitimately ("Costs vary.").
 _MIN_REPEAT_WORDS = 6
 _BLOCK_START = re.compile(r"^\s*(?:[-*+>|#]|\d+[.)]\s|```)")
+_HEADING = re.compile(r"^#{1,6}\s+(.*)$")
+_DENIED_CONFLICT = re.compile(
+    r"\b(?:no|not|nor|without)\b[^.;]{0,50}"
+    r"\b(?:conflict(?:s|ing)?|disagree(?:s|ment|ments)?|contradict(?:s|ory|ion|ions)?)\b",
+    re.IGNORECASE,
+)
+_ABOUT_SOURCES = re.compile(r"\b(?:sources?|evidence|studies|reports?)\b", re.IGNORECASE)
 
 
 class CleanupCounts(BaseModel):
@@ -41,6 +48,8 @@ class CleanupCounts(BaseModel):
     question_leaks_removed: int = 0
     repeats_dropped: int = 0
     paragraphs_split: int = 0
+    title_headings_removed: int = 0
+    conflict_denials_removed: int = 0
 
 
 def normalize_markers(text: str) -> tuple[str, int]:
@@ -133,6 +142,41 @@ def strip_question_leaks(text: str, questions: list[str]) -> tuple[str, int]:
     return "\n".join(lines), count
 
 
+def strip_title_headings(text: str, title: str) -> tuple[str, int]:
+    """Remove subheadings that repeat the section's own title."""
+    wanted = _norm(title)
+    lines = text.split("\n")
+    kept = [
+        line for line in lines if not ((m := _HEADING.match(line)) and _norm(m.group(1)) == wanted)
+    ]
+    return "\n".join(kept), len(lines) - len(kept)
+
+
+def strip_conflict_denials(text: str) -> tuple[str, int]:
+    """Remove uncited sentences declaring that the sources do not disagree.
+
+    Only the CONFLICTS stage can say that, and it says so by finding nothing.
+    A writer sees one slice of the evidence: the first live run asserted "no
+    conflicting evidence" around $20/kWh and $60-100/kWh figures.
+    """
+    count = 0
+    lines: list[str] = []
+    for line in text.split("\n"):
+        if _BLOCK_START.match(line):
+            lines.append(line)
+            continue
+        sentences = split_sentences(line)
+        kept = [
+            s
+            for s in sentences
+            if CITATION_MARKER.search(s)
+            or not (_DENIED_CONFLICT.search(s) and _ABOUT_SOURCES.search(s))
+        ]
+        count += len(sentences) - len(kept)
+        lines.append(line if len(kept) == len(sentences) else " ".join(kept))
+    return "\n".join(lines), count
+
+
 def drop_repeats(sections: list[ReportSection]) -> tuple[list[ReportSection], int]:
     """Drop any sentence of six or more words already said earlier in the report."""
     seen: set[str] = set()
@@ -202,9 +246,13 @@ def clean_draft(
     for section in draft.sections:
         text, n_normalized, n_stripped = fix_markers(section.markdown, citations)
         text, n_leaks = strip_question_leaks(text, questions)
+        text, n_headings = strip_title_headings(text, section.title)
+        text, n_denials = strip_conflict_denials(text)
         counts.markers_normalized += n_normalized
         counts.markers_stripped += n_stripped
         counts.question_leaks_removed += n_leaks
+        counts.title_headings_removed += n_headings
+        counts.conflict_denials_removed += n_denials
         sections.append(section.model_copy(update={"markdown": text}))
     sections, counts.repeats_dropped = drop_repeats(sections)
     split: list[ReportSection] = []

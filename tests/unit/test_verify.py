@@ -15,6 +15,7 @@ from quarry_ldr.pipeline.synthesize import DraftReport, ReportSection
 from quarry_ldr.pipeline.verify import (
     SupportVerdict,
     VerificationSummary,
+    _finish_rewrite,
     evidence_budget_chars,
     figures_supported,
     verify_report,
@@ -104,6 +105,40 @@ class FakeRewriteLLM:
             return SupportVerdict(verdict=verdict)  # type: ignore[arg-type]
         self.calls += 1
         return schema.model_validate({"sentence": self.rewritten})
+
+
+@pytest.mark.parametrize(
+    ("original", "rewritten", "expected"),
+    [
+        ("A claim [1]. Next one.", "A narrower claim [1]", "A narrower claim [1]."),
+        ("A claim [1]. Next one.", "A narrower claim. [1]", "A narrower claim [1]."),
+        ("A claim [1]. Next one.", "A narrower claim [1][2]", "A narrower claim [1][2]."),
+        ("A claim [1]. Next one.", "A narrower [1] claim", "A narrower [1] claim."),
+        ("A claim [1]. Next one.", "A narrower claim [1].", "A narrower claim [1]."),
+        ("- A claim [1].", "A narrower claim [1].", "- A narrower claim [1]."),
+        ("- A claim [1].", "- A narrower claim [1]", "- A narrower claim [1]."),
+    ],
+)
+def test_finish_rewrite_restores_bullets_and_sentence_ends(
+    original: str, rewritten: str, expected: str
+) -> None:
+    assert _finish_rewrite(rewritten, original) == expected
+
+
+async def test_a_rewritten_finding_stays_a_bullet_and_ends_its_sentence(cfg: QuarryConfig) -> None:
+    draft, citations, lookup = build_fixture("- A finding here [1].\n- Another finding [2].")
+    llm = FakeRewriteLLM(rewritten="A narrower finding [1]", verdicts={"A finding here": "partial"})
+    verified, summary = await verify_report(
+        draft,
+        citations,
+        lookup,
+        cast(Reranker, FakeScorer()),
+        cast(LocalLLM, llm),
+        None,
+        cfg,
+    )
+    assert summary.rewritten == 1
+    assert verified.sections[0].markdown == "- A narrower finding [1].\n- Another finding [2]."
 
 
 class ExplodingRewriteLLM:

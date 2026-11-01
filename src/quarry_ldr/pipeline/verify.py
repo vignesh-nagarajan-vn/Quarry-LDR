@@ -43,6 +43,8 @@ logger = get_logger(component="verify")
 
 _LIST_LINE = re.compile(r"\s*(?:[-*]|\d+[.)])\s+")
 _TRAILING_PUNCT = re.compile(r"^(.*?)([.!?]+[\"')\]]*)?$", re.DOTALL)
+_TRAILING_MARKERS = re.compile(r"\s*[.!?]?\s*((?:\[\d+\]\s*)+)$")
+_SENTENCE_END = re.compile(r"[.!?][\"')\]]*$")
 _REWRITE_MAX_TOKENS = 256
 _CHECK_MAX_TOKENS = 64
 # Prompt scaffold plus the sentence, in tokens, kept free of evidence.
@@ -236,6 +238,16 @@ def _parse_block(
     return _Block(is_list=is_list, sentences=sentences)
 
 
+def _finish_rewrite(candidate: str, original: str) -> str:
+    """Restore what a rewrite drops around its words: the original's list
+    prefix, and a sentence ending after the last marker."""
+    prefix = _LIST_LINE.match(original)
+    if prefix and not _LIST_LINE.match(candidate):
+        candidate = prefix.group(0) + candidate
+    candidate = _TRAILING_MARKERS.sub(lambda m: f" {m.group(1).strip()}.", candidate)
+    return candidate if _SENTENCE_END.search(candidate) else f"{candidate}."
+
+
 async def _check_support(
     unit_text: str, evidence: str, llm: LocalLLM, cfg: QuarryConfig
 ) -> Support | Literal["unjudged"]:
@@ -284,7 +296,7 @@ async def _rewrite_or_drop(
             continue
         if await _check_support(candidate, unit.evidence, llm, cfg) != "supported":
             continue
-        unit.text = candidate
+        unit.text = _finish_rewrite(candidate, unit.text)
         unit.score = score
         unit.action = "rewritten"
         return
