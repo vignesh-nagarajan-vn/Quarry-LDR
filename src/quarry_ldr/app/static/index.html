@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Quarry</title>
+    <link rel="stylesheet" href="/app.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <header class="bar">
+      <a class="brand" href="#new">Quarry</a>
+      <nav aria-label="Main">
+        <a href="#new" data-nav="new">New report</a>
+        <a href="#queue" data-nav="queue">Queue <span id="queue-count" class="count" hidden></span></a>
+        <a href="#library" data-nav="library">Library</a>
+        <a href="#setup" data-nav="setup">Setup</a>
+      </nav>
+    </header>
+    <main id="view" tabindex="-1"></main>
+    <aside id="passage" class="passage" hidden aria-label="Cited source">
+      <button id="passage-close" type="button" class="quiet" aria-label="Close source">Close</button>
+      <p id="passage-number" class="eyebrow"></p>
+      <h2 id="passage-title"></h2>
+      <a id="passage-link" rel="noreferrer noopener" target="_blank"></a>
+      <blockquote id="passage-text"></blockquote>
+    </aside>
+  </body>
+</html>

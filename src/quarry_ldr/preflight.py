@@ -47,6 +47,13 @@ class PreflightCheck:
     detail: str
 
 
+def compose_command(args: list[str]) -> list[str] | None:
+    """The docker compose command for the SearXNG stack; None when Docker is absent."""
+    if shutil.which("docker") is None:
+        return None
+    return ["docker", "compose", "-f", str(_repo_root() / "docker" / "compose.yaml"), *args]
+
+
 def run_preflight(cfg: QuarryConfig) -> list[PreflightCheck]:
     """Report which runtime pieces are present, in the order verify prints them."""
     checks: list[PreflightCheck] = []

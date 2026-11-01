@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Annotated, Literal, cast
@@ -20,7 +19,12 @@ from quarry_ldr import __version__
 from quarry_ldr.config import QuarryConfig, load_config
 from quarry_ldr.gpu.local_llm import LlamaServerError
 from quarry_ldr.logging import setup_logging
-from quarry_ldr.preflight import DOCKER_REMEDIATION, PreflightCheck, run_preflight
+from quarry_ldr.preflight import (
+    DOCKER_REMEDIATION,
+    PreflightCheck,
+    compose_command,
+    run_preflight,
+)
 
 app = typer.Typer(
     name="quarry",
@@ -274,12 +278,36 @@ def verify(config: ConfigOpt = None) -> None:
 
 
 def _compose(args: list[str]) -> int:
-    if shutil.which("docker") is None:
+    cmd = compose_command(args)
+    if cmd is None:
         err_console.print(f"[red]{DOCKER_REMEDIATION}[/red]")
         return 1
-    compose_file = Path(__file__).resolve().parents[2] / "docker" / "compose.yaml"
-    cmd = ["docker", "compose", "-f", str(compose_file), *args]
     return subprocess.run(cmd, check=False).returncode
+
+
+@app.command("app")
+def app_command(
+    config: ConfigOpt = None,
+    port: Annotated[int | None, typer.Option(help="Override app.port.")] = None,
+    open_browser: Annotated[bool, typer.Option("--open/--no-open")] = True,
+) -> None:
+    """Open the local browser app: new reports, queue, library, reader, and setup."""
+    cfg = _load(config)
+    setup_logging(log_dir=cfg.run.data_dir / "logs", verbose=False)
+
+    import uvicorn
+
+    from quarry_ldr.app.server import create_app
+
+    bound = port if port is not None else cfg.app.port
+    url = f"http://127.0.0.1:{bound}"
+    console.print(f"[green]Quarry app:[/green] {url}  (Ctrl+C to stop)")
+    uvicorn.run(
+        create_app(cfg, config_path=config, open_url=url if open_browser else None),
+        host="127.0.0.1",
+        port=bound,
+        log_level="warning",
+    )
 
 
 @searxng_app.command("up")

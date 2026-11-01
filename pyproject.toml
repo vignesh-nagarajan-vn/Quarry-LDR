@@ -25,6 +25,9 @@ dependencies = [
     "matplotlib>=3.9",
     "typst>=0.13",
     "pypdf>=5.0",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    "markdown-it-py>=3.0",
 ]
 
 [project.optional-dependencies]

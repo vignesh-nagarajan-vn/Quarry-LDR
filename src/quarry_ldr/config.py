@@ -38,6 +38,16 @@ class RunSettings(BaseModel):
     models_dir: Path = Path("models")
 
 
+class AppSettings(BaseModel):
+    """The local browser app. It only ever binds to loopback."""
+
+    port: int = 8420
+    queue_spacing_minutes: int = 30  # rest between queued runs, so search engines do not refuse
+    search_retry_minutes: int = 30  # wait after a refused probe
+    probe_spacing_seconds: int = 90  # between the healthy probes a run needs before it starts
+    healthy_probes_required: int = 3
+
+
 class ModelSettings(BaseModel):
     plan: str = "claude-opus-5"
     gap: str = "claude-sonnet-5"
@@ -184,6 +194,7 @@ class QuarryConfig(BaseSettings):
 
     engine: EngineSettings = Field(default_factory=EngineSettings)
     run: RunSettings = Field(default_factory=RunSettings)
+    app: AppSettings = Field(default_factory=AppSettings)
     models: ModelSettings = Field(default_factory=ModelSettings)
     gpu: GpuSettings = Field(default_factory=GpuSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)

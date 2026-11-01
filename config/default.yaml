@@ -14,6 +14,13 @@ run:
   data_dir: data           # all runtime artifacts (cache, index, runs.db, reports)
   models_dir: models       # local model weights and the llama.cpp server binary
 
+app:                       # quarry app, the local browser app; binds to loopback only
+  port: 8420
+  queue_spacing_minutes: 30   # rest between queued runs, so search engines do not refuse
+  search_retry_minutes: 30    # wait after a refused probe
+  probe_spacing_seconds: 90   # between the healthy probes a run needs before it starts
+  healthy_probes_required: 3
+
 models:
   # API models. Never hardcoded in business logic; the ledger prices these ids.
   plan: claude-opus-5
