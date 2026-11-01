@@ -58,6 +58,7 @@ from quarry_ldr.providers.anthropic_client import AnthropicProvider
 from quarry_ldr.providers.base import Provider
 from quarry_ldr.providers.local_client import LocalProvider
 from quarry_ldr.report.citations import CitationIndex
+from quarry_ldr.report.cleanup import clean_draft, fix_markers
 from quarry_ldr.report.render import RunManifest, render_report, sources_section, write_report
 from quarry_ldr.state import RunStatus, RunStore, Stage
 
@@ -872,6 +873,14 @@ class Orchestrator:
                 # Assisted mode: one guarded models.assisted pass over the
                 # assembled draft, before VERIFY judges the final prose.
                 draft = await polish_draft(draft, polish_provider, self.cfg)
+        # Deterministic cleanup on every engine, before VERIFY judges the prose.
+        draft, cleanup = clean_draft(
+            draft,
+            citations,
+            [sq.question for sq in plan.sub_questions],
+            self.cfg.report.max_paragraph_words,
+        )
+        logger.info("cleanup_done", **cleanup.model_dump())
         disagreements = disagreement_markdown(conflicts or [], citations)
         if disagreements:
             # Rendered by code so no writer can omit it; VERIFY still judges it.
@@ -914,6 +923,16 @@ class Orchestrator:
             config_snapshot=self.cfg.snapshot(),
             **counts,
         )
+        # Marker rules run again here: a draft persisted before cleanup existed
+        # (or replayed on resume) must not fail RENDER on a marker that cannot
+        # resolve after the money is spent.
+        sections: list[ReportSection] = []
+        for section in draft.sections:
+            text, _, n_stripped = fix_markers(section.markdown, citations)
+            if n_stripped:
+                logger.warning("render_markers_stripped", title=section.title, n=n_stripped)
+            sections.append(section.model_copy(update={"markdown": text}))
+        draft = draft.model_copy(update={"sections": sections})
         draft = draft.model_copy(
             update={
                 "sections": [*draft.sections, sources_section(draft, citations, self.cfg.source)]

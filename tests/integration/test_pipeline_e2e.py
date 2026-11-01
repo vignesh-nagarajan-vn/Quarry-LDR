@@ -670,3 +670,22 @@ async def test_vague_evidence_keeps_searching_despite_saturation(cfg: QuarryConf
 
     assert result.iterations == 2  # code overrode the saturated verdict, within the bound
     assert searx.calls == 2
+
+
+async def test_malformed_and_invented_premium_markers_never_fail_render(
+    cfg: QuarryConfig,
+) -> None:
+    class SloppyProvider(FakeProvider):
+        async def complete_with_cached_corpus(self, **kwargs: Any) -> CompletionResult:
+            result = await super().complete_with_cached_corpus(**kwargs)
+            text = f"Section {self.synth_calls} rests on [1 (sq01)], [1, 2], and [999]."
+            return result.model_copy(update={"text": text})
+
+    cfg.verify.enabled = False
+    with respx.mock:
+        _mock_corpus_routes()
+        result = await _orchestrator(cfg, SloppyProvider()).research("sloppy marker case")
+    report = Path(result.report_path).read_text("utf-8")
+    assert "[999]" not in report
+    assert "(sq01)" not in report
+    assert "rests on [1], [1][2], and." in report
