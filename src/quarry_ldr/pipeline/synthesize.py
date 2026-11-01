@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from quarry_ldr.config import QuarryConfig, SourceSettings
 from quarry_ldr.ingest.chunk import HeuristicTokenCounter, TokenCounter
-from quarry_ldr.ingest.sources import adjusted_score, site_of
+from quarry_ldr.ingest.sources import SourceTier, adjusted_score, rate_url, site_of
 from quarry_ldr.ledger import CostCapExceeded
 from quarry_ldr.logging import get_logger
 from quarry_ldr.pipeline.conflicts import Conflict, conflict_notes
@@ -87,9 +87,13 @@ def select_evidence(
     With ``source``, order follows the tier-adjusted score and no site spends
     more than its share of the budget. The share widens to ``1 / n_sites``
     when too few sites exist for the configured cap to be possible, so a thin
-    corpus keeps its evidence.
+    corpus keeps its evidence. Low-tier evidence only fills what a sub-question
+    has left once its better sources run out, however high it scored.
     """
     active_counter: TokenCounter = counter if counter is not None else HeuristicTokenCounter()
+
+    def is_low(item: TriagedChunk) -> bool:
+        return source is not None and rate_url(item.chunk.url, source.overrides) == SourceTier.LOW
 
     def rank(item: TriagedChunk) -> float:
         if source is None:
@@ -99,7 +103,9 @@ def select_evidence(
             concrete * _SPECIFICS_BONUS
         )
 
-    ordered = sorted(evidence, key=lambda t: (t.sub_question_id, -rank(t), t.chunk.chunk_id))
+    ordered = sorted(
+        evidence, key=lambda t: (t.sub_question_id, is_low(t), -rank(t), t.chunk.chunk_id)
+    )
     grouped: dict[str, deque[TriagedChunk]] = {}
     for item in ordered:
         grouped.setdefault(item.sub_question_id, deque()).append(item)

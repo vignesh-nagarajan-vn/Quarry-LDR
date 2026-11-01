@@ -45,7 +45,13 @@ _LIST_LINE = re.compile(r"\s*(?:[-*]|\d+[.)])\s+")
 _TRAILING_PUNCT = re.compile(r"^(.*?)([.!?]+[\"')\]]*)?$", re.DOTALL)
 _TRAILING_MARKERS = re.compile(r"\s*[.!?]?\s*((?:\[\d+\]\s*)+)$")
 _SENTENCE_END = re.compile(r"[.!?][\"')\]]*$")
+_ENDS_WITH_MARKER = re.compile(r"\]\s*[.!?]?\s*$")
 _REWRITE_MAX_TOKENS = 256
+# A rewrite narrows a sentence. One much longer has pasted in the source's text.
+_REWRITE_EXTRA_WORDS = 5
+# An uncited sentence tries this many of its best-scoring chunks: the top score
+# often shares the sentence's words rather than its fact.
+_ATTACH_CANDIDATES = 3
 _CHECK_MAX_TOKENS = 64
 # Prompt scaffold plus the sentence, in tokens, kept free of evidence.
 _PROMPT_OVERHEAD_TOKENS = 700
@@ -289,6 +295,10 @@ async def _rewrite_or_drop(
         candidate_numbers = {int(m.group(1)) for m in CITATION_MARKER.finditer(candidate)}
         if not candidate or not candidate_numbers or not candidate_numbers <= original_numbers:
             continue
+        if not _ENDS_WITH_MARKER.search(candidate):
+            continue
+        if len(candidate.split()) > len(unit.text.split()) + _REWRITE_EXTRA_WORDS:
+            continue
         if not figures_supported(candidate, unit.evidence):
             continue
         (score,) = await reranker.score_pairs([(candidate, unit.evidence)])
@@ -301,6 +311,23 @@ async def _rewrite_or_drop(
         unit.action = "rewritten"
         return
     unit.action = "dropped"
+
+
+async def _choose_attachment(
+    unit: _Unit, choices: list[tuple[float, int, str]], llm: LocalLLM, cfg: QuarryConfig
+) -> tuple[float, int, str] | None:
+    """The first chunk that supports the sentence, else the first that partly
+    does, which leaves ``unit.support`` at "partial" for a rewrite."""
+    partial: tuple[float, int, str] | None = None
+    for choice in choices:
+        unit.support = await _check_support(unit.text, choice[2], llm, cfg)
+        if unit.support == "supported" and figures_supported(unit.text, choice[2]):
+            return choice
+        if unit.support == "partial" and partial is None:
+            partial = choice
+    if partial is not None:
+        unit.support = "partial"
+    return partial
 
 
 async def verify_report(
@@ -356,14 +383,13 @@ async def verify_report(
     for unit, score in zip(cited, scores[: len(cited)], strict=True):
         unit.score = score
         unit.figures_ok = figures_supported(unit.text, unit.evidence)
-    best: dict[int, tuple[float, int, str]] = {}
+    attachable: dict[int, list[tuple[float, int, str]]] = {}
     for (unit, number, evidence), score in zip(candidate_pairs, scores[len(cited) :], strict=True):
-        key = id(unit)
-        if score >= cfg.verify.floor and (key not in best or score > best[key][0]):
-            best[key] = (score, number, evidence)
+        if score >= cfg.verify.floor:
+            attachable.setdefault(id(unit), []).append((score, number, evidence))
 
     # ---- Pass 2, triage model: support checks.
-    if (cited or best) and llama_server is not None:
+    if (cited or attachable) and llama_server is not None:
         # The reranker and the triage model fit together under the budget,
         # so this is the stage's only potential llama-server swap.
         await llama_server.start()
@@ -373,23 +399,22 @@ async def verify_report(
             unit.support = await _check_support(unit.text, unit.evidence, llm, cfg)
             n_unjudged += unit.support == "unjudged"
     for unit in uncited:
-        choice = best.get(id(unit))
+        ranked = sorted(attachable.get(id(unit), []), key=lambda c: (-c[0], c[1]))
+        choice = await _choose_attachment(unit, ranked[:_ATTACH_CANDIDATES], llm, cfg)
         if choice is None:
             unit.action = "dropped"
             continue
-        score, number, evidence = choice
-        unit.support = await _check_support(unit.text, evidence, llm, cfg)
-        if unit.support == "supported" and figures_supported(unit.text, evidence):
-            unit.text = _attach_marker(unit.text, number)
-            unit.numbers = [number]
-            unit.evidence = evidence
-            unit.score = score
-        else:
-            unit.action = "dropped"
+        unit.score, number, unit.evidence = choice
+        unit.text = _attach_marker(unit.text, number)
+        unit.numbers = [number]
 
-    # ---- Pass 3: rewrite-or-drop every cited sentence that failed a gate.
+    # ---- Pass 3: rewrite-or-drop every cited sentence that failed a gate, and
+    # every uncited one its best chunk only partly supports.
     for unit in cited:
         if unit.score < cfg.verify.floor or not unit.figures_ok or unit.support != "supported":
+            await _rewrite_or_drop(unit, reranker, llm, cfg)
+    for unit in uncited:
+        if unit.support == "partial":
             await _rewrite_or_drop(unit, reranker, llm, cfg)
 
     new_sections: list[ReportSection] = []

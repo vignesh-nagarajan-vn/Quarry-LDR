@@ -140,7 +140,8 @@ def score_report(markdown: str, overrides: dict[str, str] | None = None) -> Scor
         cut_off_titles=sum(
             1
             for t in titles
-            if _DANGLING_END.search(t) or (_QUESTION_START.match(t) and not t.endswith("?"))
+            if t not in REQUIRED_SECTIONS
+            and (_DANGLING_END.search(t) or (_QUESTION_START.match(t) and not t.endswith("?")))
         ),
         question_titles=sum(1 for t in titles if t.endswith("?")),
         question_sentences=sum(1 for s in sentences if strip_markers(s).endswith("?")),

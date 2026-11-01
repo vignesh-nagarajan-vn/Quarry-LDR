@@ -44,6 +44,13 @@ Tier mix goes here [1].
 """
 
 
+def test_required_section_names_are_not_cut_off_titles() -> None:
+    card = score_report(
+        "# T\n\n## What we could not establish\n\nA gap.\n\n## How the costs of\n\nA."
+    )
+    assert card.cut_off_titles == 1  # only the heading that really stops mid-phrase
+
+
 def test_score_report_measures_the_report() -> None:
     card = score_report(REPORT)
     assert card.sections == 3

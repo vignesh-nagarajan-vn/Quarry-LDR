@@ -301,6 +301,20 @@ def test_select_evidence_with_source_is_deterministic_and_prefers_strong_tiers()
     assert kept == select_evidence(list(reversed(weak + strong)), entry_cost * 3, source=source)
 
 
+def test_select_evidence_uses_low_tier_only_after_better_sources_run_out() -> None:
+    weak = [_site_evidence("eureka.patsnap.com", "sq01", i, 30.0) for i in range(3)]
+    strong = [_site_evidence("www.energy.gov", "sq01", 10 + i, 1.0) for i in range(2)]
+    only_weak = [_site_evidence("eureka.patsnap.com", "sq02", 20, 1.0)]
+    entry_cost = HeuristicTokenCounter().count(_corpus_entry(weak[0], 0))
+    source = SourceSettings(max_site_share=1.0)
+
+    kept = select_evidence(weak + strong + only_weak, entry_cost * 3, source=source)
+
+    urls = [(item.sub_question_id, item.chunk.url) for item in kept]
+    assert urls.count(("sq01", "https://www.energy.gov/doc")) == 2
+    assert ("sq02", "https://eureka.patsnap.com/doc") in urls  # nothing better for sq02
+
+
 def test_a_name_from_chunk_text_reaches_the_corpus_through_its_claim() -> None:
     base = make_evidence(1)[0]
     named = base.model_copy(

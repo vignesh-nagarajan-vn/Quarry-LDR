@@ -375,6 +375,69 @@ async def test_unsupported_uncited_facts_drop_but_links_and_gap_notes_stay(
     assert summary.uncited_dropped == 1
 
 
+async def test_partly_supported_uncited_fact_is_rewritten_against_its_best_chunk(
+    cfg: QuarryConfig,
+) -> None:
+    llm = FakeRewriteLLM("The pilot stores heat at 600 degrees [1].", verdicts={"tanks": "partial"})
+    verified, summary = await _verify(
+        "Good claim [1]. The pilot stores heat at 600 degrees in large sand tanks.", llm, cfg
+    )
+    assert verified.sections[0].markdown == (
+        "Good claim [1]. The pilot stores heat at 600 degrees [1]."
+    )
+    assert summary.uncited_attached == 1 and summary.uncited_dropped == 0
+
+
+async def test_partly_supported_uncited_fact_drops_when_no_rewrite_passes(
+    cfg: QuarryConfig,
+) -> None:
+    llm = FakeRewriteLLM("The pilot stores heat [1].", verdicts={"pilot": "partial"})
+    verified, summary = await _verify(
+        "Good claim [1]. The pilot stores heat at 600 degrees in large sand tanks.", llm, cfg
+    )
+    assert verified.sections[0].markdown == "Good claim [1]."
+    assert summary.uncited_dropped == 1
+
+
+async def test_uncited_fact_attaches_to_a_lower_scoring_chunk_that_supports_it(
+    cfg: QuarryConfig,
+) -> None:
+    class SupportedByFactOne(FakeRewriteLLM):
+        async def complete_typed(
+            self, prompt: str, schema: Any, max_tokens: int = 512, max_retries: int = 2
+        ) -> Any:
+            if schema is SupportVerdict:
+                self.check_prompts.append(prompt)
+                verdict = "supported" if "Fact 1." in prompt or "Good" in prompt else "unsupported"
+                return SupportVerdict(verdict=verdict)  # type: ignore[arg-type]
+            return await super().complete_typed(prompt, schema, max_tokens, max_retries)
+
+    verified, summary = await _verify(
+        "Good claim [1]. Good claim two [2]. The pilot stores heat at 600 degrees in sand tanks.",
+        SupportedByFactOne(),
+        cfg,
+    )
+    assert verified.sections[0].markdown.endswith("in sand tanks [2].")
+    assert summary.uncited_attached == 1
+
+
+@pytest.mark.parametrize(
+    "rewritten",
+    [
+        "A narrower claim [1], which then runs on past its marker",
+        "A claim the model padded with a long passage copied straight out of the source text [1].",
+    ],
+)
+async def test_rewrite_that_runs_on_or_pastes_the_source_is_rejected(
+    rewritten: str, cfg: QuarryConfig
+) -> None:
+    llm = FakeRewriteLLM(rewritten, verdicts={"Weak": "partial"})
+    verified, summary = await _verify("Good claim [1]. Weak short claim [1].", llm, cfg)
+    assert verified.sections[0].markdown == "Good claim [1]."
+    assert llm.calls == cfg.verify.max_rewrites
+    assert summary.dropped == 1
+
+
 async def test_uncited_fact_with_a_figure_the_evidence_lacks_is_dropped(cfg: QuarryConfig) -> None:
     verified, summary = await _verify(
         "Good claim [1]. The pilot stores heat at 750 degrees in large sand tanks.",

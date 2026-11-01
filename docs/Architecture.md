@@ -130,9 +130,11 @@ topic
               every figure in it appears in its cited chunks, and the
               4B judges it supported over the whole chunk; otherwise
               up to verify.max_rewrites rewrites must pass all three,
-              then it is dropped. Uncited factual sentences get a
-              supported marker from their section's sources or are
-              dropped; linking sentences and gap notes stay.
+              then it is dropped. Uncited factual sentences try their
+              three best chunks from their section's sources: a chunk
+              that supports one gives it a marker, one that partly
+              does sends it to rewrite, and otherwise it is dropped.
+              Linking sentences and gap notes stay.
   |
   v
 [RENDER]      Key findings, body, Where sources disagree, What we
@@ -243,7 +245,7 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `verify.max_rewrites` | 2 | Rewrite attempts on the 4B before a failing sentence is dropped; a rewrite must pass the floor, the figure check, and the support check |
 | `source.max_site_share` | 0.2 | Most of the evidence budget one site may supply; relaxed to `1 / n_sites` when too few sites exist |
 | `source.rerank_site_limit` | 8 | Most of a sub-question's `rerank_top_k` one site may fill |
-| `source.tier_bonus` | primary 2.0, scholarly 2.0, established 0.5, general 0.0, low -3.0 | Added to reranker logits when ranking; the raw score stays on record |
+| `source.tier_bonus` | primary 2.0, scholarly 2.0, established 0.5, general 0.0, low -3.0 | Added to reranker logits when ranking; the raw score stays on record. Separately, selection uses low-tier evidence only after a sub-question's better sources run out |
 | `source.overrides` | `{}` | Domain to tier; beats every built-in rating rule |
 | `api.max_retries` | 5 | Backoff retries on 429/529 |
 | `api.retry_base_s` | 1.0 | Exponential backoff base with jitter |
