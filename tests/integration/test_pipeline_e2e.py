@@ -52,9 +52,16 @@ def _hash_vector(text: str, dim: int = 32) -> NDArray[np.float32]:
 class FakeSearx:
     def __init__(self) -> None:
         self.calls = 0
+        self.science_queries: list[list[str]] = []
 
-    async def search_many(self, queries: list[str], num_results: int = 10) -> list[SearchResult]:
+    async def search_many(
+        self,
+        queries: list[str],
+        num_results: int = 10,
+        science_queries: list[str] | None = None,
+    ) -> list[SearchResult]:
         self.calls += 1
+        self.science_queries.append(list(science_queries or []))
         return [
             SearchResult(url=doc["url"], title=doc["title"], snippet="", query=queries[0])
             for doc in _manifest()
@@ -96,9 +103,13 @@ class FakeLocalLLM:
     """Triage fake. complete_with_usage also serves local-mode GAP calls,
     which LocalProvider routes through the resident triage model."""
 
+    def __init__(self) -> None:
+        self.triage_prompts: list[str] = []
+
     async def complete_typed(
         self, prompt: str, schema: type[TriageVerdict], max_tokens: int = 512, max_retries: int = 2
     ) -> TriageVerdict:
+        self.triage_prompts.append(prompt)
         relevant = "sand" in prompt.lower() or "vesterholm" in prompt.lower()
         return TriageVerdict(
             relevant=relevant,
@@ -595,3 +606,31 @@ async def test_resume_after_synthesize_keeps_synthesis_citation_numbering(
     resumed_refs = _references_block(Path(resumed.report_path).read_text(encoding="utf-8"))
     # The rebuilt numbering equals what synthesis assigned: references identical.
     assert resumed_refs == baseline_refs
+
+
+async def test_later_passes_never_rejudge_a_chunk_and_search_science(cfg: QuarryConfig) -> None:
+    cfg.run.max_iterations = 2
+    cfg.fetch.per_domain_rps = 500.0
+    cfg.engine.mode = "premium"
+    searx = FakeSearx()
+    llm = FakeLocalLLM()
+    provider = FakeProvider(
+        gap_script=[GapAnalysis(saturated=False, new_queries=["more"], rationale="r")]
+    )
+    orchestrator = Orchestrator(
+        cfg,
+        searx=cast(SearxClient, searx),
+        fetcher=Fetcher(cfg.fetch),
+        embedder=cast(Embedder, FakeEmbedder()),
+        reranker=cast(Reranker, FakeReranker()),
+        local_llm=cast(LocalLLM, llm),
+        provider=provider,
+    )
+    with respx.mock:
+        _mock_corpus_routes()
+        result = await orchestrator.research("the vesterholm sand battery pilot")
+
+    assert len(llm.triage_prompts) == len(set(llm.triage_prompts))  # no pair judged twice
+    assert result.iterations == 2
+    assert len(searx.science_queries[0]) == 8  # one per sub-question on the first pass
+    assert searx.science_queries[1] == ["more"]  # every follow-up on later passes

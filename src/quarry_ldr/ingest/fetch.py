@@ -30,6 +30,9 @@ from quarry_ldr.logging import get_logger
 logger = get_logger(component="fetch")
 
 _ALLOWED_CONTENT_TYPES = {"text/html", "application/xhtml+xml", "text/plain"}
+_PDF_CONTENT_TYPE = "application/pdf"
+# Servers often label a PDF as a generic binary; the URL then says what it is.
+_GENERIC_BINARY_TYPES = {"application/octet-stream", "binary/octet-stream"}
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
@@ -63,6 +66,12 @@ class FetchResult(BaseModel):
         if self.status is not FetchStatus.OK or self.content_path is None:
             raise ValueError(f"cannot read bytes for non-ok fetch result (status={self.status})")
         return self.content_path.read_bytes()
+
+
+def _is_pdf(url: str, content_type: str) -> bool:
+    if content_type == _PDF_CONTENT_TYPE:
+        return True
+    return content_type in _GENERIC_BINARY_TYPES and urlsplit(url).path.lower().endswith(".pdf")
 
 
 def normalize_url(url: str) -> str:
@@ -215,10 +224,12 @@ class Fetcher:
                     response.headers.get("content-type", "").split(";")[0].strip().lower()
                 )
 
+                is_pdf = _is_pdf(final_url, content_type)
+                max_bytes = self.settings.max_pdf_bytes if is_pdf else self.settings.max_bytes
                 content_length = response.headers.get("content-length")
                 if content_length is not None:
                     try:
-                        too_large = int(content_length) > self.settings.max_bytes
+                        too_large = int(content_length) > max_bytes
                     except ValueError:
                         too_large = False
                     if too_large:
@@ -239,7 +250,7 @@ class Fetcher:
                         content_type=content_type,
                     )
 
-                if content_type not in _ALLOWED_CONTENT_TYPES:
+                if content_type not in _ALLOWED_CONTENT_TYPES and not is_pdf:
                     return FetchResult(
                         url=url,
                         final_url=final_url,
@@ -251,7 +262,7 @@ class Fetcher:
                 chunks = bytearray()
                 async for chunk in response.aiter_bytes():
                     chunks.extend(chunk)
-                    if len(chunks) > self.settings.max_bytes:
+                    if len(chunks) > max_bytes:
                         return FetchResult(
                             url=url,
                             final_url=final_url,

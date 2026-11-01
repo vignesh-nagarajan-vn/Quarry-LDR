@@ -11,7 +11,7 @@ import pytest
 import respx
 from anthropic import AsyncAnthropic
 
-from quarry_ldr.config import QuarryConfig
+from quarry_ldr.config import QuarryConfig, SourceSettings
 from quarry_ldr.ingest.chunk import Chunk, HeuristicTokenCounter, make_chunk_id
 from quarry_ldr.ledger import Ledger, TokenUsage
 from quarry_ldr.pipeline.plan import ResearchPlan, SubQuestion, make_plan
@@ -211,3 +211,63 @@ async def test_synthesize_empty_evidence_still_produces_sections(cfg: QuarryConf
             make_plan_obj(8), [], cast(AnthropicProvider, fake), cfg, citations
         )
         citations.validate_markdown(draft.sections[0].markdown)
+
+
+def _site_evidence(site: str, sq: str, position: int, score: float) -> TriagedChunk:
+    url = f"https://{site}/doc"
+    return TriagedChunk(
+        sub_question_id=sq,
+        chunk=Chunk(
+            chunk_id=make_chunk_id(url, position),
+            url=url,
+            text="x" * 400,
+            token_count=100,
+            position=position,
+            start_char=0,
+            end_char=400,
+        ),
+        verdict=TriageVerdict(relevant=True, claim="c", evidence_span="s", confidence=0.9),
+        rerank_score=score,
+    )
+
+
+def _spread(kept: list[TriagedChunk]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for item in kept:
+        counts[item.chunk.url] = counts.get(item.chunk.url, 0) + 1
+    return counts
+
+
+def test_select_evidence_caps_a_flooding_site() -> None:
+    flood = [_site_evidence("flood.example", "sq01", i, 9.0) for i in range(40)]
+    others = [_site_evidence(f"s{i}.example", "sq01", 100 + i, 1.0) for i in range(8)]
+    entry_cost = HeuristicTokenCounter().count(_corpus_entry(flood[0], 0))
+    budget = entry_cost * 10
+
+    kept = select_evidence(flood + others, budget, source=SourceSettings(max_site_share=0.2))
+
+    assert _spread(kept)["https://flood.example/doc"] <= 2
+    assert len(kept) == 10
+    assert select_evidence(flood + others, budget) != kept  # the cap changed the outcome
+
+
+def test_select_evidence_share_widens_for_a_thin_corpus() -> None:
+    two_sites = [_site_evidence("a.example", "sq01", i, 5.0) for i in range(5)]
+    two_sites += [_site_evidence("b.example", "sq01", 10 + i, 5.0) for i in range(5)]
+    entry_cost = HeuristicTokenCounter().count(_corpus_entry(two_sites[0], 0))
+
+    kept = select_evidence(two_sites, entry_cost * 10, source=SourceSettings(max_site_share=0.2))
+
+    assert len(kept) == 10  # a 0.2 cap is impossible with two sites; nothing is lost
+
+
+def test_select_evidence_with_source_is_deterministic_and_prefers_strong_tiers() -> None:
+    weak = [_site_evidence("eureka.patsnap.com", "sq01", i, 5.0) for i in range(3)]
+    strong = [_site_evidence("www.energy.gov", "sq01", 10 + i, 4.0) for i in range(3)]
+    entry_cost = HeuristicTokenCounter().count(_corpus_entry(weak[0], 0))
+    source = SourceSettings(max_site_share=1.0)
+
+    kept = select_evidence(weak + strong, entry_cost * 3, source=source)
+
+    assert all("energy.gov" in item.chunk.url for item in kept)
+    assert kept == select_evidence(list(reversed(weak + strong)), entry_cost * 3, source=source)

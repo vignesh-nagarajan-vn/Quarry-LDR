@@ -216,3 +216,67 @@ def test_robots_disallowed_fixture_still_extracts(fixtures_dir: Path) -> None:
     assert doc is not None
     assert len(doc.blocks) >= 2
     assert "quartz sand" in doc.text
+
+
+def _text_pdf(*pages: str) -> bytes:
+    """A real, minimal PDF with extractable text, built without a dependency."""
+    objects: list[bytes] = []
+    n_pages = len(pages)
+    kids = " ".join(f"{3 + i * 2} 0 R" for i in range(n_pages))
+    objects.append(b"<< /Type /Catalog /Pages 2 0 R >>")
+    objects.append(f"<< /Type /Pages /Kids [{kids}] /Count {n_pages} >>".encode())
+    font_id = 3 + n_pages * 2
+    for i, text in enumerate(pages):
+        content_id = 4 + i * 2
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {content_id} 0 R "
+            f"/Resources << /Font << /F1 {font_id} 0 R >> >> >>".encode()
+        )
+        stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+        objects.append(b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream), stream))
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n%s\nendobj\n" % (number, body)
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += b"trailer << /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF" % (len(objects) + 1, xref)
+    return bytes(out)
+
+
+LONG_PAGE = "The pilot plant stored heat in sand and delivered it to the district network. " * 4
+
+
+def test_pdf_extracts_one_block_per_page_with_page_headings() -> None:
+    doc = extract_document(
+        _text_pdf(
+            LONG_PAGE, "The second page reports measured efficiency across the winter season."
+        ),
+        "https://www.energy.gov/files/Annual%20Report.pdf",
+    )
+    assert doc is not None
+    assert doc.title == "Annual Report.pdf"
+    assert [block.heading_path for block in doc.blocks] == [["Page 1"], ["Page 2"]]
+    assert "pilot plant" in doc.blocks[0].text
+    assert "pilot plant" in doc.text
+
+
+def test_malformed_pdf_is_rejected_not_raised() -> None:
+    assert (
+        extract_document(b"%PDF-1.7\nthis is not really a pdf", "https://x.example/a.pdf") is None
+    )
+
+
+def test_pdf_with_too_little_text_is_rejected() -> None:
+    assert extract_document(_text_pdf("tiny"), "https://x.example/a.pdf") is None
+
+
+def test_pdf_page_of_mostly_symbols_is_skipped() -> None:
+    garbled = "#$%^&*~" * 60
+    doc = extract_document(_text_pdf(LONG_PAGE, garbled), "https://x.example/a.pdf")
+    assert doc is not None
+    assert [block.heading_path for block in doc.blocks] == [["Page 1"]]

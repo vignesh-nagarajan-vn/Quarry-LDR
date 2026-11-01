@@ -56,7 +56,7 @@ from quarry_ldr.providers.anthropic_client import AnthropicProvider
 from quarry_ldr.providers.base import Provider
 from quarry_ldr.providers.local_client import LocalProvider
 from quarry_ldr.report.citations import CitationIndex
-from quarry_ldr.report.render import RunManifest, render_report, write_report
+from quarry_ldr.report.render import RunManifest, render_report, sources_section, write_report
 from quarry_ldr.state import RunStatus, RunStore, Stage
 
 logger = get_logger(component="orchestrator")
@@ -286,6 +286,7 @@ class Orchestrator:
             iteration = 0
             queries = plan.all_queries()
             evidence_by_key: dict[tuple[str, str], TriagedChunk] = {}
+            judged: set[tuple[str, str]] = set()
             totals = {"n_queries": 0, "n_urls_fetched": 0, "n_docs_extracted": 0, "n_chunks": 0}
             n_sources = 0
             n_kept_total = 0
@@ -295,8 +296,17 @@ class Orchestrator:
             while True:
                 it = iteration
                 q = list(queries)
+                # The first pass has several queries per sub-question; one each
+                # reaches the science category. Gap follow-ups are few and all go.
+                science: list[str] = []
+                if self.cfg.search.science_search:
+                    science = [sq.queries[0] for sq in plan.sub_questions] if it == 0 else q
                 search_payload = await self._stage(
-                    store, run_id, Stage.SEARCH, it, partial(self._compute_search, searx, q)
+                    store,
+                    run_id,
+                    Stage.SEARCH,
+                    it,
+                    partial(self._compute_search, searx, q, science),
                 )
                 urls: list[str] = search_payload["urls"]
 
@@ -375,14 +385,24 @@ class Orchestrator:
                     Stage.TRIAGE,
                     it,
                     partial(
-                        self._compute_triage, plan, rerank_payload, vstore, llama_server, local_llm
+                        self._compute_triage,
+                        plan,
+                        rerank_payload,
+                        vstore,
+                        llama_server,
+                        local_llm,
+                        frozenset(judged),
                     ),
                 )
                 for raw in triage_payload["evidence"]:
                     item = TriagedChunk.model_validate(raw)
                     evidence_by_key[(item.sub_question_id, item.chunk.chunk_id)] = item
+                # A checkpoint from before this field existed judged only what
+                # its evidence shows; re-judging the rest is merely slower.
+                for sq_id, chunk_id in triage_payload.get("judged", []):
+                    judged.add((sq_id, chunk_id))
 
-                totals["n_queries"] += len(q)
+                totals["n_queries"] += search_payload["n_queries"]
                 totals["n_urls_fetched"] += len(urls)
                 totals["n_docs_extracted"] += len(extract_payload["extracted_urls"])
                 totals["n_chunks"] += len(chunks)
@@ -485,7 +505,10 @@ class Orchestrator:
                 # never-cited chunks and shift every number, so the persisted
                 # draft's [n] markers would resolve to the wrong sources.
                 build_evidence_corpus(
-                    select_evidence(evidence, self.cfg.report.corpus_budget_tokens), citations
+                    select_evidence(
+                        evidence, self.cfg.report.corpus_budget_tokens, source=self.cfg.source
+                    ),
+                    citations,
                 )
 
             # ---- VERIFY (claim-vs-cited-chunk entailment, every engine mode)
@@ -573,11 +596,16 @@ class Orchestrator:
         plan = await make_plan(topic, provider, self.cfg)
         return plan.model_dump(mode="json")
 
-    async def _compute_search(self, searx: SearxClient, queries: list[str]) -> dict[str, Any]:
-        results = await searx.search_many(queries, self.cfg.search.results_per_query)
+    async def _compute_search(
+        self, searx: SearxClient, queries: list[str], science_queries: list[str]
+    ) -> dict[str, Any]:
+        results = await searx.search_many(
+            queries, self.cfg.search.results_per_query, science_queries=science_queries
+        )
         urls = [result.url for result in results]
-        logger.info("search_done", n_queries=len(queries), n_urls=len(urls))
-        return {"urls": urls, "n_queries": len(queries)}
+        n_queries = len(queries) + len(science_queries)
+        logger.info("search_done", n_queries=n_queries, n_urls=len(urls))
+        return {"urls": urls, "n_queries": n_queries}
 
     async def _compute_fetch(self, fetcher: Fetcher, urls: list[str]) -> dict[str, Any]:
         results = await fetcher.fetch_many(urls)
@@ -682,7 +710,7 @@ class Orchestrator:
                 ScoredChunk(chunk=lookup[cid], score=score) for cid, score in rows if cid in lookup
             ]
             reranked = await rerank_candidates(
-                sub_question, candidates, reranker, self.cfg.retrieve
+                sub_question, candidates, reranker, self.cfg.retrieve, self.cfg.source
             )
             per_sq[sub_question.id] = [[c.chunk.chunk_id, c.score] for c in reranked]
         logger.info("rerank_done", n_sq=len(per_sq))
@@ -695,7 +723,11 @@ class Orchestrator:
         vstore: VectorStore,
         llama_server: LlamaServer | None,
         local_llm: LocalLLM | None,
+        already_judged: frozenset[tuple[str, str]] = frozenset(),
     ) -> dict[str, Any]:
+        """Judge only (sub-question, chunk) pairs no earlier pass has seen: the
+        rerank top 40 barely moves between passes, and re-judging it was 60
+        percent of a full run's triage work (1,574 items, 627 unique)."""
         assert local_llm is not None
         if llama_server is not None:
             await llama_server.start()
@@ -703,14 +735,21 @@ class Orchestrator:
         all_ids = sorted({cid for rows in rerank_payload["per_sq"].values() for cid, _ in rows})
         lookup = await asyncio.to_thread(vstore.get_many, all_ids)
         evidence: list[TriagedChunk] = []
+        newly_judged: list[list[str]] = []
         for sub_question in plan.sub_questions:
             rows = rerank_payload["per_sq"].get(sub_question.id, [])
             scored = [
-                ScoredChunk(chunk=lookup[cid], score=score) for cid, score in rows if cid in lookup
+                ScoredChunk(chunk=lookup[cid], score=score)
+                for cid, score in rows
+                if cid in lookup and (sub_question.id, cid) not in already_judged
             ]
+            newly_judged.extend([sub_question.id, item.chunk.chunk_id] for item in scored)
             evidence.extend(await triage_chunks(sub_question, scored, local_llm, self.cfg.triage))
-        logger.info("triage_done_all", n_evidence=len(evidence))
-        return {"evidence": [item.model_dump(mode="json") for item in evidence]}
+        logger.info("triage_done_all", n_evidence=len(evidence), n_judged=len(newly_judged))
+        return {
+            "evidence": [item.model_dump(mode="json") for item in evidence],
+            "judged": newly_judged,
+        }
 
     async def _compute_gap(
         self,
@@ -820,6 +859,11 @@ class Orchestrator:
             },
             config_snapshot=self.cfg.snapshot(),
             **counts,
+        )
+        draft = draft.model_copy(
+            update={
+                "sections": [*draft.sections, sources_section(draft, citations, self.cfg.source)]
+            }
         )
         markdown = render_report(draft, citations, ledger, manifest)
         path = write_report(markdown, self._data_dir() / "reports", run_id)

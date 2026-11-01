@@ -51,6 +51,7 @@ The project was built and its pre-deployment tests were run on the desktop PC de
 - **tenacity**: retry/backoff for the API client.
 - **pytest, pytest-asyncio, pytest-cov, pytest-socket, respx**: test stack; respx mocks httpx at the transport layer.
 - **torch (cu128 index), sentence-transformers, transformers**: GPU extra only, never pulled by CI.
+- **pypdf**: text from fetched PDFs; government reports and papers often exist only as PDFs, and the v1.0.1 fetcher rejected them all. Pure Python, BSD licensed, no native build, and every failure is contained at the extraction boundary.
 
 ## Pipeline parameters (from spec unless noted; tuned values get measured justification)
 

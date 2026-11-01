@@ -71,6 +71,7 @@ class SearchSettings(BaseModel):
     max_concurrency: int = 4
     results_per_query: int = 10
     timeout_s: float = 15.0
+    science_search: bool = True
 
 
 class FetchSettings(BaseModel):
@@ -79,6 +80,7 @@ class FetchSettings(BaseModel):
     max_concurrency: int = 8
     timeout_s: float = 20.0
     max_bytes: int = 5_000_000
+    max_pdf_bytes: int = 20_000_000
     cache_dir: Path = Path("data/cache/fetch")
 
 
@@ -139,6 +141,21 @@ class ApiSettings(BaseModel):
 
 
 class SourceSettings(BaseModel):
+    # No site may supply more than this share of the evidence budget, unless
+    # there are too few sites for the share to be possible.
+    max_site_share: float = 0.2
+    # At most this many of a sub-question's rerank_top_k from any one site.
+    rerank_site_limit: int = 8
+    # Added to raw reranker logits when ranking, never stored over them.
+    tier_bonus: dict[str, float] = Field(
+        default_factory=lambda: {
+            "primary": 2.0,
+            "scholarly": 2.0,
+            "established": 0.5,
+            "general": 0.0,
+            "low": -3.0,
+        }
+    )
     # Domain to tier (primary, scholarly, established, general, low); beats
     # every built-in rating rule in ingest/sources.py.
     overrides: dict[str, str] = Field(default_factory=dict)

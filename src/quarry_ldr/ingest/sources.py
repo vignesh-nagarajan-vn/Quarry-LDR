@@ -14,6 +14,8 @@ import re
 from collections.abc import Mapping
 from urllib.parse import urlsplit
 
+from quarry_ldr.config import SourceSettings
+
 
 class SourceTier(enum.StrEnum):
     PRIMARY = "primary"  # governments, regulators, intergovernmental and standards bodies
@@ -153,3 +155,8 @@ def rate_url(url: str, overrides: Mapping[str, str] | None = None) -> SourceTier
     if _matches(host, _ESTABLISHED_SITES):
         return SourceTier.ESTABLISHED
     return SourceTier.GENERAL
+
+
+def adjusted_score(url: str, score: float, settings: SourceSettings) -> float:
+    """A raw relevance score moved by the source's tier, for ranking only."""
+    return score + settings.tier_bonus.get(rate_url(url, settings.overrides).value, 0.0)
