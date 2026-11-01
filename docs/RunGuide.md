@@ -61,6 +61,22 @@ The report and its PDF land in `data/reports/` as `report-<run_id>.md` and `repo
 
 Every report reads in the same order: Key findings (a bottom line plus 5 to 8 cited bullets, each with a code-assigned confidence label), the body sections, Where sources disagree (only when code accepted a conflict), What we could not establish, Sources (tier mix and any concentration warning), and References. Length targets 3,000 to 6,000 words on every engine.
 
+## The Local App
+
+```bash
+uv run quarry app
+```
+
+This opens a page in your browser, running only on your machine. It uses the same engine as the terminal.
+
+- **New report:** enter a topic, choose an engine and depth, and see the price first. A paid engine asks you to accept a spending limit.
+- **Queue:** reports run one at a time with a rest between them, and start only after three spaced search checks pass. If search engines are refusing, the report waits and says so. Stop and Resume use the run's checkpoints.
+- **Library:** every report on the machine, searchable by topic and text.
+- **Reader:** click a citation to see the exact source passage beside the text.
+- **Setup:** the same checks as `quarry verify`, with buttons to start and test search.
+
+Keep the app running while reports run: closing it stops the current report, which you can resume later. Do not start a terminal report while the app is running one, because the GPU budget is enforced per process.
+
 ## The Three Engines
 
 `engine.mode` decides who serves PLAN, GAP, and SYNTHESIZE. Everything else, including the CONFLICTS stage and every VERIFY gate, is identical across engines and always local. Key findings go through the engine's writer. The costs and times below are v1.0.1 measurements; the report-quality changes have not been re-measured live yet.

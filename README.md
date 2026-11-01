@@ -75,6 +75,7 @@ make searxng                  # starts local search in Docker
 uv run python scripts/download_models.py   # fetches llama-server and both GGUFs
 uv run quarry verify          # preflight check with remediation hints
 uv run quarry research "your topic"
+uv run quarry app             # or use the browser app: queue, library, reader, setup
 ```
 
 That default run is the `local` engine: $0.00, no API key. To buy Claude reasoning instead, put `ANTHROPIC_API_KEY` in `.env` and pick the engine per run:

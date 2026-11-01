@@ -47,7 +47,8 @@ The v0 hybrid design is preserved on branch `archive/v0-hybrid-api` (released as
 | `src/quarry_ldr/report/cleanup.py` | Deterministic draft cleanup: markers, leaked plan text, repeats, wall paragraphs |
 | `src/quarry_ldr/report/scorecard.py` | `quarry score`: report metrics against `evals/thresholds.json` |
 | `src/quarry_ldr/report/pdf.py`, `charts.py` | Branded Typst PDF + matplotlib run charts, fail-soft |
-| `src/quarry_ldr/cli.py` | Typer CLI: research, resume, inspect, runs, verify, score, searxng |
+| `src/quarry_ldr/cli.py` | Typer CLI: research, resume, inspect, runs, verify, score, app, searxng |
+| `src/quarry_ldr/app/` | `quarry app`: local browser page, report queue (CLI processes), library, passage lookup |
 | `src/quarry_ldr/preflight.py` | Shared setup checks (models, Docker, API key, GPU); `verify` prints them, research/resume gate on them |
 | `evals/` | Benchmark topics and versioned scorecard thresholds; threshold changes get their own commit |
 | `scripts/` | bootstrap, model download, GPU verify, VRAM bench, fixtures, audit, smoke |

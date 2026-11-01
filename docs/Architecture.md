@@ -189,6 +189,17 @@ Quarry-LDR is designed for a laptop NVIDIA RTX 5060 Mobile: 8 GB GDDR7, Blackwel
 
 Any CUDA GPU with compute capability 8.0 or newer also works: `verify_gpu.py` checks capability at least (8, 0), and you should set `gpu.vram_budget_mb` to about 80 percent of your card's VRAM. `DECISIONS.md` carries two measured baselines: the desktop RTX 4060 (`sm_89`) development PC (nDCG regression, llama-server latency) and the RTX 5060 Mobile (`sm_120`) deployment laptop (footprints, sustained throughput, and the one-time PTX JIT cost of the cuda-12.4 llama.cpp build on Blackwell).
 
+## The local app
+
+`quarry app` serves a browser page from `src/quarry_ldr/app/`, on loopback only.
+
+- `jobs.py`: the queue. Each job is a `quarry research` or `quarry resume` process, one at a time, started only after spaced healthy search probes. Jobs persist in `data/app.db`.
+- `library.py`: read-only views of `runs.db` and `data/reports`, so reports from the terminal appear too. It maps each `[n]` to its chunk through the report's reference list.
+- `server.py`: the HTTP API, with Host and Origin checks, a strict content policy, and the spending rules for paid runs.
+- `static/`: the page, with no build step and nothing loaded from outside the machine.
+
+The pipeline does not know the app exists. Every invariant above holds because a report is the same CLI process either way.
+
 ## Configuration reference
 
 Defaults live in `config/default.yaml`; identical defaults are baked into the code so a missing file never breaks a run. Override with a `--config your.yaml` layer or `QUARRY_<SECTION>__<KEY>` environment variables.
@@ -200,6 +211,11 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `run.cost_cap_usd` | 5.0 | Hard API spend cap; the ledger raises mid-run when crossed |
 | `run.data_dir` | `data` | Where cache, index, run DB, logs, and reports live |
 | `run.models_dir` | `models` | Local weights and the llama.cpp server binary (`download_models.py`) |
+| `app.port` | 8420 | Port for `quarry app`; it binds to loopback only |
+| `app.queue_spacing_minutes` | 30 | Rest between queued runs, so search engines keep answering |
+| `app.search_retry_minutes` | 30 | Wait after a refused probe before checking again |
+| `app.probe_spacing_seconds` | 90 | Gap between the healthy probes a run needs before it starts |
+| `app.healthy_probes_required` | 3 | Consecutive healthy probes before a queued run starts |
 | `models.plan` | `claude-opus-5` | Premium planning model; cheaper models produce weaker decompositions |
 | `models.gap` | `claude-sonnet-5` | Premium gap model; runs every iteration, keep it cheap |
 | `models.synthesize` | `claude-opus-5` | Premium writer; the one place maximum capability pays for itself |
