@@ -159,6 +159,7 @@ uv run python scripts/smoke.py --engine assisted --max-cost 0.50
 ## Operational Cautions, Learned Live
 
 - **Space out repeated runs.** Upstream search engines have suspended an IP after too many queries in a short window; `search.max_concurrency` bounds the per-run burst, but volume across runs adds up. Probe with three spaced queries, all required healthy, before spending on a paid run; a single passing probe has been observed lying.
+- **A suspension can outlast a day's plans.** On 2026-11-01 one full run of 72 queries at concurrency 2 was followed by refusals from every general engine from 02:16 to at least 14:20. Restarting SearXNG and rebooting did not clear it, because the engines refuse the IP. Queue the report and let it wait.
 - **Keep the machine awake** during a run. Laptops that sleep mid-run resume fine (that is what checkpoints are for), but on some Windows builds Docker needs a reboot after sleep before search works again.
 - **Thermal throttling is real.** Sustained runs generate well below burst benchmarks; if section writing times out on your card, raise `synth.request_timeout_s` and resume the run.
 - **Different GPU?** Set `gpu.vram_budget_mb` to about 80 percent of VRAM and run `scripts/bench_vram.py` to measure real footprints; the arbiter corrects declared values against measurements, within a plausibility guard.

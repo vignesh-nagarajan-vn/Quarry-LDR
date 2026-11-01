@@ -86,13 +86,13 @@ class _Process:
     """A run's process. Stopping takes the whole tree: a run owns a llama-server, and
     an orphan would keep holding the VRAM the next run needs."""
 
-    def __init__(self, command: list[str], log: IO[bytes]) -> None:
+    def __init__(self, command: list[str], log: IO[bytes], env: dict[str, str]) -> None:
         self._popen = subprocess.Popen(
             command,
             stdout=log,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
-            env={**os.environ, "PYTHONUTF8": "1"},
+            env={**os.environ, **env},
             start_new_session=sys.platform != "win32",
         )
 
@@ -173,6 +173,17 @@ async def probe_search(cfg: QuarryConfig, query: str) -> bool:
         return False
 
 
+def _run_env(job: Job) -> dict[str, str]:
+    """A resumed run takes its engine and limit from the process, not its first start,
+    so a paid run must not resume on another engine or under another limit."""
+    return {
+        "PYTHONUTF8": "1",
+        "QUARRY_ENGINE__MODE": job.engine,
+        "QUARRY_RUN__COST_CAP_USD": str(job.max_cost),
+        "QUARRY_RUN__MAX_ITERATIONS": str(job.iterations),
+    }
+
+
 def _command(job: Job, config_path: Path | None) -> list[str]:
     command = [sys.executable, "-m", "quarry_ldr.cli"]
     if job.resume and job.run_id is not None:
@@ -229,7 +240,7 @@ class Runner:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         handle = log_path.open("ab")
         self._log_handles[job.id] = handle
-        return _Process(_command(job, self._config_path), handle)
+        return _Process(_command(job, self._config_path), handle, _run_env(job))
 
     async def recover(self) -> None:
         """A job still marked running lost its app; its checkpoints make it resumable."""

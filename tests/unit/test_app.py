@@ -10,7 +10,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from quarry_ldr.app.jobs import Job, JobStatus, JobStore, Runner, _command
+from quarry_ldr.app.jobs import Job, JobStatus, JobStore, Runner, _command, _run_env
 from quarry_ldr.app.library import Library, render_report_html, valid_run_id
 from quarry_ldr.app.server import create_app
 from quarry_ldr.config import QuarryConfig
@@ -243,6 +243,14 @@ def test_commands_match_the_terminal(harness: Harness) -> None:
     ]
     again = harness.runner.new_job("A topic", "local", 0.0, 3, run_id=RUN_ID)
     assert _command(again, None)[3:] == ["resume", RUN_ID]
+
+
+def test_a_resumed_paid_run_keeps_its_engine_and_limit(harness: Harness) -> None:
+    again = harness.runner.new_job("A topic", "premium", 4.5, 1, run_id=RUN_ID)
+    env = _run_env(again)
+    assert env["QUARRY_ENGINE__MODE"] == "premium"
+    assert env["QUARRY_RUN__COST_CAP_USD"] == "4.5"
+    assert env["QUARRY_RUN__MAX_ITERATIONS"] == "1"
 
 
 # ---- Library
