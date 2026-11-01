@@ -105,7 +105,8 @@ class FakeLocalLLM:
 
     def __init__(self, scripted: dict[str, dict[str, Any]] | None = None) -> None:
         self.triage_prompts: list[str] = []
-        self.scripted = scripted or {}
+        # VERIFY's support check: the fixture sentences are supported.
+        self.scripted = {"SupportVerdict": {"verdict": "supported"}, **(scripted or {})}
 
     async def complete_typed(
         self, prompt: str, schema: Any, max_tokens: int = 512, max_retries: int = 2
@@ -552,7 +553,7 @@ async def test_assisted_engine_routes_gap_and_polish_to_the_cheap_model(
     assert api_provider.gap_models == [cfg.models.assisted]
     assert api_provider.polish_models == [cfg.models.assisted]
     assert api_provider.synth_calls == 0  # cached-corpus synthesis never runs
-    assert synth_fake.calls >= 18  # plan, 8 sections, 8 guarded edits, key findings drafted locally
+    assert synth_fake.calls >= 10  # plan, 8 sections, key findings: all drafted locally
     report = Path(result.report_path).read_text(encoding="utf-8")
     assert re.search(r"citing \[\d+\]", report)
     assert "## References" in report

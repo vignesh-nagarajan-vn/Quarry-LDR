@@ -10,8 +10,15 @@ from quarry_ldr.config import QuarryConfig
 from quarry_ldr.gpu.local_llm import LlamaServer, LocalLLM
 from quarry_ldr.gpu.reranker import Reranker
 from quarry_ldr.ingest.chunk import Chunk, make_chunk_id
+from quarry_ldr.pipeline.findings import GAPS_TITLE
 from quarry_ldr.pipeline.synthesize import DraftReport, ReportSection
-from quarry_ldr.pipeline.verify import VerificationSummary, verify_report
+from quarry_ldr.pipeline.verify import (
+    SupportVerdict,
+    VerificationSummary,
+    evidence_budget_chars,
+    figures_supported,
+    verify_report,
+)
 from quarry_ldr.report.citations import CitationIndex
 
 
@@ -70,13 +77,31 @@ class FakeScorer:
 
 
 class FakeRewriteLLM:
-    def __init__(self, rewritten: str = "A supported claim [1].") -> None:
+    """Serves both VERIFY prompts: rewrites return ``rewritten``; support
+    checks answer per sentence substring in ``verdicts``, else ``default``."""
+
+    def __init__(
+        self,
+        rewritten: str = "A supported claim [1].",
+        verdicts: dict[str, str] | None = None,
+        default: str = "supported",
+    ) -> None:
         self.rewritten = rewritten
-        self.calls = 0
+        self.verdicts = verdicts or {}
+        self.default = default
+        self.calls = 0  # rewrite calls
+        self.check_prompts: list[str] = []
 
     async def complete_typed(
         self, prompt: str, schema: Any, max_tokens: int = 512, max_retries: int = 2
     ) -> Any:
+        if schema is SupportVerdict:
+            self.check_prompts.append(prompt)
+            sentence = prompt.split("Sentence: ", 1)[1].split("\n", 1)[0]
+            verdict = next((v for k, v in self.verdicts.items() if k in sentence), self.default)
+            if verdict == "malformed":
+                raise ValueError("no valid JSON after retries")
+            return SupportVerdict(verdict=verdict)  # type: ignore[arg-type]
         self.calls += 1
         return schema.model_validate({"sentence": self.rewritten})
 
@@ -113,8 +138,9 @@ async def test_above_floor_kept_verbatim(cfg: QuarryConfig) -> None:
     assert summary.kept == 2
     assert summary.rewritten == 0 and summary.dropped == 0
     assert summary.mean_entailment_score == 5.0
-    assert llm.calls == 0
-    assert server.started == 0  # no failures: the triage server is never touched
+    assert llm.calls == 0  # no rewrites
+    assert len(llm.check_prompts) == 2  # every cited sentence gets a support check
+    assert server.started == 1  # the checks need the triage model, once
     assert len(scorer.calls) == 1  # one batched pass over the whole report
 
 
@@ -174,7 +200,8 @@ async def test_rewrite_valueerror_exhausts_to_drop(cfg: QuarryConfig) -> None:
         cfg,
     )
     assert summary.dropped == 1
-    assert verified.sections[0].markdown == ""
+    assert verified.sections == []  # a section emptied by drops is removed
+    assert summary.sections_removed == 1
 
 
 async def test_unresolvable_markers_are_skipped_not_crashed(cfg: QuarryConfig) -> None:
@@ -210,7 +237,7 @@ async def test_structure_passes_through_and_lists_drop_by_line(cfg: QuarryConfig
         citations,
         lookup,
         cast(Reranker, scorer),
-        cast(LocalLLM, ExplodingRewriteLLM()),
+        cast(LocalLLM, FakeRewriteLLM("Fabricated [7].")),
         None,
         cfg,
     )
@@ -222,3 +249,146 @@ async def test_structure_passes_through_and_lists_drop_by_line(cfg: QuarryConfig
     assert "Plain uncited sentence stays." in out
     assert summary.total_claims == 2
     assert summary.dropped == 1
+
+
+async def _verify(
+    markdown: str, llm: Any, cfg: QuarryConfig, scorer: FakeScorer | None = None, title: str = "S"
+) -> tuple[DraftReport, VerificationSummary]:
+    draft, citations, lookup = build_fixture(markdown)
+    draft = draft.model_copy(update={"sections": [ReportSection(title=title, markdown=markdown)]})
+    return await verify_report(
+        draft,
+        citations,
+        lookup,
+        cast(Reranker, scorer or FakeScorer()),
+        cast(LocalLLM, llm),
+        None,
+        cfg,
+    )
+
+
+def test_figures_must_appear_in_the_evidence() -> None:
+    evidence = "The pilot stores heat at 600 degrees and cost 1,200 euros."
+    assert figures_supported("Heat reaches 600 degrees [1].", evidence)
+    assert figures_supported("It cost 1200 euros [1].", evidence)
+    assert not figures_supported("Heat reaches 900 degrees [1].", evidence)
+
+
+async def test_a_planted_wrong_number_is_rewritten_to_the_evidence(cfg: QuarryConfig) -> None:
+    llm = FakeRewriteLLM("The pilot stores heat at 600 degrees [1].")
+    verified, summary = await _verify("The pilot stores heat at 900 degrees [1].", llm, cfg)
+    assert verified.sections[0].markdown == "The pilot stores heat at 600 degrees [1]."
+    assert summary.figure_failures == 1 and summary.rewritten == 1
+    assert llm.check_prompts and "900" not in llm.check_prompts[-1].split("Sentence: ")[1]
+
+
+async def test_a_wrong_number_that_survives_rewriting_is_dropped(cfg: QuarryConfig) -> None:
+    llm = FakeRewriteLLM("The pilot stores heat at 950 degrees [1].")
+    verified, summary = await _verify(
+        "Fine claim [2]. The pilot stores heat at 900 degrees [1].", llm, cfg
+    )
+    assert verified.sections[0].markdown == "Fine claim [2]."
+    assert summary.dropped == 1 and summary.figure_failures == 1
+
+
+async def test_partial_support_goes_to_rewrite_and_unsupported_rewrites_drop(
+    cfg: QuarryConfig,
+) -> None:
+    llm = FakeRewriteLLM(
+        "The pilot is the largest in Europe [1].",
+        verdicts={"Norway": "partial", "largest": "unsupported"},
+    )
+    verified, summary = await _verify("Fine [2]. The pilot is in Norway [1].", llm, cfg)
+    assert verified.sections[0].markdown == "Fine [2]."
+    assert summary.support_rejections == 1
+    assert summary.dropped == 1
+    assert llm.calls == cfg.verify.max_rewrites
+
+
+async def test_a_sentence_the_model_cannot_judge_fails_closed(cfg: QuarryConfig) -> None:
+    llm = FakeRewriteLLM("Rewritten pilot claim [1].", verdicts={"pilot": "malformed"})
+    verified, summary = await _verify("Fine [2]. The pilot works [1].", llm, cfg)
+    assert verified.sections[0].markdown == "Fine [2]."
+    assert summary.unjudged == 1 and summary.dropped == 1
+
+
+async def test_uncited_factual_sentences_get_a_supported_marker(cfg: QuarryConfig) -> None:
+    llm = FakeRewriteLLM()
+    verified, summary = await _verify(
+        "Good claim [1]. The pilot stores heat at 600 degrees in large sand tanks.", llm, cfg
+    )
+    assert verified.sections[0].markdown == (
+        "Good claim [1]. The pilot stores heat at 600 degrees in large sand tanks [1]."
+    )
+    assert summary.uncited_attached == 1 and summary.uncited_dropped == 0
+
+
+async def test_unsupported_uncited_facts_drop_but_links_and_gap_notes_stay(
+    cfg: QuarryConfig,
+) -> None:
+    markdown = (
+        "Good claim [1]. Turning to costs. "
+        "The sources reviewed did not report what the second plant will cost. "
+        "Halvard Grid will open three further plants across Norway by 2031."
+    )
+    llm = FakeRewriteLLM(verdicts={"Halvard": "unsupported"})
+    verified, summary = await _verify(markdown, llm, cfg)
+    assert verified.sections[0].markdown == (
+        "Good claim [1]. Turning to costs. "
+        "The sources reviewed did not report what the second plant will cost."
+    )
+    assert summary.uncited_dropped == 1
+
+
+async def test_uncited_fact_with_a_figure_the_evidence_lacks_is_dropped(cfg: QuarryConfig) -> None:
+    verified, summary = await _verify(
+        "Good claim [1]. The pilot stores heat at 750 degrees in large sand tanks.",
+        FakeRewriteLLM(),
+        cfg,
+    )
+    assert verified.sections[0].markdown == "Good claim [1]."
+    assert summary.uncited_dropped == 1
+
+
+async def test_uncited_fact_below_the_floor_never_reaches_the_model(cfg: QuarryConfig) -> None:
+    llm = FakeRewriteLLM()
+    scorer = FakeScorer(scores={"Halvard": -5.0})
+    verified, summary = await _verify(
+        "Good claim [1]. Halvard Grid will open three further plants across Norway by 2031.",
+        llm,
+        cfg,
+        scorer,
+    )
+    assert verified.sections[0].markdown == "Good claim [1]."
+    assert len(llm.check_prompts) == 1  # only the cited sentence was checked
+    assert summary.uncited_dropped == 1
+
+
+async def test_code_built_gap_sections_are_never_trimmed(cfg: QuarryConfig) -> None:
+    text = "The final coverage check found every sub-question answered by the sources reviewed."
+    verified, summary = await _verify(text, FakeRewriteLLM(), cfg, title=GAPS_TITLE)
+    assert verified.sections[0].markdown == text
+    assert summary == VerificationSummary()
+
+
+async def test_the_model_sees_the_whole_cited_chunk(cfg: QuarryConfig) -> None:
+    citations = CitationIndex()
+    long_text = "Opening context. " * 150 + "The tail says 600 degrees."
+    chunk = make_chunk(long_text)
+    citations.add(chunk)
+    draft = DraftReport(
+        topic="t", sections=[ReportSection(title="S", markdown="Heat reaches 600 degrees [1].")]
+    )
+    llm = FakeRewriteLLM()
+    await verify_report(
+        draft,
+        citations,
+        {chunk.chunk_id: chunk},
+        cast(Reranker, FakeScorer()),
+        cast(LocalLLM, llm),
+        None,
+        cfg,
+    )
+    assert len(long_text) > 1500  # the old per-chunk cut
+    assert "The tail says 600 degrees." in llm.check_prompts[0]
+    assert len(long_text) < evidence_budget_chars(cfg)

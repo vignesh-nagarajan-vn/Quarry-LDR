@@ -134,6 +134,14 @@ def _build_source(
             "Claims rewritten / dropped",
             f"{manifest.n_claims_rewritten} / {manifest.n_claims_dropped}",
         ),
+        (
+            "Figure / support failures",
+            f"{manifest.n_figure_failures} / {manifest.n_support_rejections}",
+        ),
+        (
+            "Uncited sentences cited / removed",
+            f"{manifest.n_uncited_attached} / {manifest.n_uncited_dropped}",
+        ),
         ("API spend", f"USD {summary.total_cost_usd:.4f}"),
     ]
     for stage, cost in sorted(summary.by_stage.items(), key=lambda kv: -kv[1]):

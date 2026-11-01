@@ -40,6 +40,12 @@ class RunManifest(BaseModel):
     n_claims_checked: int = 0
     n_claims_rewritten: int = 0
     n_claims_dropped: int = 0
+    n_figure_failures: int = 0
+    n_support_rejections: int = 0
+    n_claims_unjudged: int = 0
+    n_uncited_attached: int = 0
+    n_uncited_dropped: int = 0
+    n_sections_removed: int = 0
     mean_entailment_score: float = 0.0
     models: dict[str, str] = Field(default_factory=dict)
     config_snapshot: dict[str, Any] = Field(default_factory=dict)
