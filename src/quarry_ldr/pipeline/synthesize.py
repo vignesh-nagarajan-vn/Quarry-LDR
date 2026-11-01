@@ -7,8 +7,7 @@ identical prefix with a 1h cache_control breakpoint; the provider raises
 CachePrefixError on drift rather than silently paying full price.
 ``synthesize_local()`` is the local path: a 16K-context model cannot hold
 the full corpus, so each body section sees only its own sub-questions'
-evidence and Overview/Conclusions see a compact digest, while citation
-numbers come from one global index assigned up front. Both paths first trim
+evidence, while citation numbers come from one global index assigned up front. Both paths first trim
 evidence to ``report.corpus_budget_tokens`` (round-robin across
 sub-questions in descending rerank order).
 """
@@ -26,7 +25,7 @@ from quarry_ldr.ingest.sources import adjusted_score, site_of
 from quarry_ldr.ledger import CostCapExceeded
 from quarry_ldr.logging import get_logger
 from quarry_ldr.pipeline.conflicts import Conflict, conflict_notes
-from quarry_ldr.pipeline.plan import ResearchPlan
+from quarry_ldr.pipeline.plan import ResearchPlan, SectionPlan
 from quarry_ldr.pipeline.triage import TriagedChunk
 from quarry_ldr.providers.base import Provider, hash_corpus
 from quarry_ldr.report.citations import CITATION_MARKER, CitationError, CitationIndex
@@ -146,59 +145,90 @@ def build_evidence_corpus(evidence: list[TriagedChunk], citations: CitationIndex
     return "\n".join(lines)
 
 
-def plan_sections(plan: ResearchPlan, cfg: QuarryConfig) -> list[SectionBrief]:
-    """Derive section briefs from the research plan (min/max from config).
+_MAX_TITLE_CHARS = 60
+_MAX_TITLE_WORDS = 8
+_DANGLING = frozenset({"a", "an", "and", "at", "by", "for", "in", "of", "on", "or", "the", "to"})
 
-    Shape: an overview, one body section per sub-question (grouped when the
-    plan has more sub-questions than the section budget), and a conclusion.
+
+def _fallback_title(question: str) -> str:
+    """A question cut at a word boundary, never ending on a dangling word."""
+    words = question.rstrip("?").split()
+    while len(" ".join(words)) > _MAX_TITLE_CHARS:
+        words.pop()
+    while len(words) > 1 and words[-1].lower() in _DANGLING:
+        words.pop()
+    return " ".join(words)
+
+
+def _valid_title(title: str) -> bool:
+    title = title.strip()
+    return (
+        0 < len(title) <= _MAX_TITLE_CHARS
+        and len(title.split()) <= _MAX_TITLE_WORDS
+        and not title.endswith("?")
+    )
+
+
+def section_groups(plan: ResearchPlan, max_body: int) -> list[SectionPlan]:
+    """The plan's own sections when code accepts them, else a deterministic split.
+
+    Accepted only if every sub-question appears exactly once, no unknown id
+    appears, the count fits ``max_body``, and every title is short, unique,
+    and not a question. Anything else falls back to consecutive groups.
     """
-    max_body = max(cfg.report.max_sections - 2, 1)
-    sub_questions = plan.sub_questions
-    groups: list[list[str]] = []
-    if len(sub_questions) <= max_body:
-        groups = [[sq.id] for sq in sub_questions]
-    else:
-        # Distribute sub-questions across max_body groups, round-robin-free:
-        # consecutive ids stay together so sections read coherently.
-        per_group = -(-len(sub_questions) // max_body)  # ceil division
-        for start in range(0, len(sub_questions), per_group):
-            groups.append([sq.id for sq in sub_questions[start : start + per_group]])
-
-    by_id = {sq.id: sq for sq in sub_questions}
-    briefs = [
-        SectionBrief(
-            title="Overview",
-            instructions=(
-                "Write a compact overview of the topic and the report's key findings. "
-                "Cite the strongest evidence."
-            ),
-            sub_question_ids=[sq.id for sq in sub_questions],
+    ids = [sq.id for sq in plan.sub_questions]
+    proposed = plan.sections
+    assigned = [sq_id for section in proposed for sq_id in section.sub_question_ids]
+    titles = [section.title.strip() for section in proposed]
+    if (
+        proposed
+        and len(proposed) <= max_body
+        and sorted(assigned) == sorted(ids)
+        and all(_valid_title(title) for title in titles)
+        and len({title.lower() for title in titles}) == len(titles)
+    ):
+        return [
+            SectionPlan(title=title, sub_question_ids=list(section.sub_question_ids))
+            for title, section in zip(titles, proposed, strict=True)
+        ]
+    if proposed:
+        logger.warning("plan_sections_rejected", n_proposed=len(proposed))
+    by_id = {sq.id: sq for sq in plan.sub_questions}
+    per_group = max(1, -(-len(ids) // max_body))  # ceil division; consecutive ids stay together
+    return [
+        SectionPlan(
+            title=_fallback_title(by_id[ids[start]].question),
+            sub_question_ids=ids[start : start + per_group],
         )
+        for start in range(0, len(ids), per_group)
     ]
+
+
+def section_word_range(cfg: QuarryConfig, n_sections: int) -> tuple[int, int]:
+    """Per-section word bounds that put the report inside the configured total."""
+    n = max(n_sections, 1)
+    return cfg.report.target_words_min // n, cfg.report.target_words_max // n
+
+
+def plan_sections(plan: ResearchPlan, cfg: QuarryConfig) -> list[SectionBrief]:
+    """One body brief per validated plan section.
+
+    Key findings, disagreements, gaps, and sources are added around the body
+    after it is written; no section here spans the whole plan.
+    """
+    groups = section_groups(plan, max(cfg.report.max_sections - 2, 1))
+    by_id = {sq.id: sq for sq in plan.sub_questions}
+    low, high = section_word_range(cfg, len(groups))
+    briefs: list[SectionBrief] = []
     for group in groups:
-        questions = "; ".join(by_id[sq_id].question for sq_id in group)
-        title = by_id[group[0]].question.rstrip("?")
-        if len(title) > 70:
-            # Cut at a word boundary; a mid-word chop with a "..." marker
-            # reads broken in headings and the PDF contents page.
-            title = title[:70].rsplit(" ", 1)[0]
+        questions = "; ".join(by_id[sq_id].question for sq_id in group.sub_question_ids)
         briefs.append(
             SectionBrief(
-                title=title,
-                instructions=f"Answer in depth: {questions}",
-                sub_question_ids=list(group),
+                title=group.title,
+                instructions=f"Answer in depth: {questions} Write {low} to {high} words.",
+                sub_question_ids=list(group.sub_question_ids),
             )
         )
-    briefs.append(
-        SectionBrief(
-            title="Conclusions",
-            instructions=(
-                "Synthesize the overall answer, note open questions and conflicting "
-                "evidence explicitly."
-            ),
-            sub_question_ids=[sq.id for sq in sub_questions],
-        )
-    )
     return briefs
 
 
@@ -207,17 +237,18 @@ SECTION_PROMPT = """Write the report section titled "{title}".
 {instructions}
 
 Rules:
-- Use ONLY the evidence corpus above. Every factual claim carries a citation
-  marker [n] matching a corpus entry. No uncited claims.
+- Use ONLY the sources reviewed above. Every factual claim carries a citation
+  marker [n] matching a numbered source entry. No uncited claims.
 - Markdown body text only: no top-level heading (it is added by the renderer),
   subsections with ### are fine.
 - Be concrete. Name the companies, projects, places, and people the evidence
   names, and give its dates and figures. Never write "some companies" or "recent
   studies" when the evidence says which.
 - If evidence conflicts, say so and cite both sides.
-- If the corpus lacks evidence for something, say the evidence is missing
-  rather than inventing it.
-- Relevant sub-questions: {sub_question_ids}.
+- If the sources reviewed lack evidence for something, say so rather than
+  inventing it. Call them "the sources reviewed", never "the corpus".
+- Answer the questions; do not restate them.
+- Relevant sub-questions: {sub_question_ids}. Never write these ids in the text.
 """
 
 
@@ -283,30 +314,8 @@ class _SectionPayload(BaseModel):
 
 LOCAL_SECTION_RULES = (
     '\nReply with JSON only: {"markdown": "the section body"}. Cite only [n] '
-    "numbers that appear in the corpus above; never invent numbers."
+    "numbers that appear in the sources above; never invent numbers."
 )
-
-_DIGEST_CLAIMS_PER_SQ = 3
-
-
-def _digest_corpus(
-    plan: ResearchPlan,
-    evidence_by_sq: dict[str, list[TriagedChunk]],
-    citations: CitationIndex,
-) -> str:
-    """Compact all-sub-question digest for the Overview/Conclusions sections:
-    top claims only, tagged with their already-assigned citation numbers."""
-    lines = ["EVIDENCE DIGEST (key claims per sub-question)", ""]
-    for sub_question in plan.sub_questions:
-        lines.append(f"### {sub_question.id}: {sub_question.question}")
-        items = evidence_by_sq.get(sub_question.id, [])[:_DIGEST_CLAIMS_PER_SQ]
-        if not items:
-            lines.append("(no evidence collected)")
-        for item in items:
-            number = citations.add(item.chunk)
-            lines.append(f"[{number}] {item.verdict.claim}")
-        lines.append("")
-    return "\n".join(lines)
 
 
 def _section_corpus(
@@ -386,22 +395,15 @@ async def synthesize_local(
     for item in ordered:
         evidence_by_sq.setdefault(item.sub_question_id, []).append(item)
 
-    all_ids = {sq.id for sq in plan.sub_questions}
-    digest = _digest_corpus(plan, evidence_by_sq, citations)
     sections: list[ReportSection] = []
     for brief in plan_sections(plan, cfg):
-        # Overview/Conclusions span every sub-question (detected structurally,
-        # not by title): they get the digest, never a full corpus.
-        if set(brief.sub_question_ids) == all_ids:
-            corpus = digest
-        else:
-            corpus = _section_corpus(
-                evidence_by_sq,
-                brief.sub_question_ids,
-                citations,
-                cfg.synth.section_budget_tokens,
-                cfg.source,
-            )
+        corpus = _section_corpus(
+            evidence_by_sq,
+            brief.sub_question_ids,
+            citations,
+            cfg.synth.section_budget_tokens,
+            cfg.source,
+        )
         notes = conflict_notes(conflicts or [], citations, brief.sub_question_ids)
         prompt = (
             corpus
@@ -437,6 +439,68 @@ async def synthesize_local(
     # No single shared prefix exists on the local path; an empty hash keeps
     # anything downstream from mistaking it for a cache key.
     return DraftReport(topic=plan.topic, sections=sections, corpus_hash="")
+
+
+LOCAL_EDIT_PROMPT = """Edit this report section titled "{title}" for readability.
+
+Section:
+{markdown}
+
+Rules:
+- Tighten wording, smooth transitions, fix grammar, and remove repetition.
+- Keep every citation marker like [3] exactly as written, attached to the
+  same claim. Never add, drop, or renumber a marker.
+- Never add or remove facts, names, dates, or figures.
+- Keep the markdown structure (### subsections, lists).
+- Refer to "the sources reviewed", never "the corpus".
+"""
+# An edit that shrinks or grows the section this much is a rewrite, not an edit.
+_EDIT_MIN_RATIO = 0.6
+_EDIT_MAX_RATIO = 1.3
+
+
+async def edit_sections_local(
+    draft: DraftReport, provider: Provider, cfg: QuarryConfig
+) -> DraftReport:
+    """One guarded local edit per section (local engine only).
+
+    An edit stands only if its citation-marker multiset is unchanged and its
+    length stays within 0.6x to 1.3x of the draft; otherwise, or on any
+    failure, that section keeps its draft text.
+    """
+    sections: list[ReportSection] = []
+    n_applied = 0
+    for section in draft.sections:
+        try:
+            payload = await provider.complete_typed(
+                model=cfg.models.synthesize,
+                prompt=LOCAL_EDIT_PROMPT.format(title=section.title, markdown=section.markdown)
+                + LOCAL_SECTION_RULES,
+                schema=_SectionPayload,
+                max_tokens=cfg.synth.section_max_tokens,
+                stage="edit",
+            )
+            edited = _strip_leading_heading(payload.markdown.strip())
+        except CostCapExceeded:
+            raise
+        except Exception as exc:  # an edit is an enhancement, never a run-killer
+            logger.warning("edit_failed", title=section.title, error=str(exc)[:200])
+            sections.append(section)
+            continue
+        ratio = len(edited.split()) / max(len(section.markdown.split()), 1)
+        if _marker_multiset(edited) != _marker_multiset(section.markdown):
+            logger.warning("edit_discarded", title=section.title, reason="citation markers changed")
+            sections.append(section)
+        elif not _EDIT_MIN_RATIO <= ratio <= _EDIT_MAX_RATIO:
+            logger.warning(
+                "edit_discarded", title=section.title, reason="length", ratio=round(ratio, 2)
+            )
+            sections.append(section)
+        else:
+            n_applied += 1
+            sections.append(section.model_copy(update={"markdown": edited}))
+    logger.info("edit_done", n_sections=len(sections), n_applied=n_applied)
+    return draft.model_copy(update={"sections": sections})
 
 
 _POLISH_DELIMITER = re.compile(r"<!--Q-SECTION:(.*?)-->")

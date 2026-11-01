@@ -26,9 +26,19 @@ class SubQuestion(BaseModel):
     must_pin_down: str = ""
 
 
+class SectionPlan(BaseModel):
+    """One report section: a short heading over the sub-questions it answers."""
+
+    title: str
+    sub_question_ids: list[str] = Field(min_length=1)
+
+
 class ResearchPlan(BaseModel):
     topic: str
     sub_questions: list[SubQuestion] = Field(min_length=8, max_length=15)
+    # The model's proposed grouping, validated by code before use (see
+    # synthesize.section_groups). Plans saved before this field load empty.
+    sections: list[SectionPlan] = Field(default_factory=list)
     created_at: datetime | None = None
 
     @field_validator("sub_questions")
@@ -47,6 +57,7 @@ class _PlanPayload(BaseModel):
     """The JSON shape the planning model returns; topic is attached locally."""
 
     sub_questions: list[SubQuestion] = Field(min_length=8, max_length=15)
+    sections: list[SectionPlan] = Field(default_factory=list)
 
 
 PLAN_SYSTEM = (
@@ -56,8 +67,13 @@ PLAN_SYSTEM = (
     "success criterion describing what cited evidence would satisfy it. "
     "Each also gets must_pin_down: the concrete facts a good answer names, such as "
     "specific companies, projects, places, dates, or measured values. "
+    "Then group the sub-questions into 4 to 8 report sections. Each section gets "
+    "a short heading of 2 to 6 words naming its subject (a noun phrase, never a "
+    "question) and the ids it answers; every sub-question belongs to exactly one "
+    "section. "
     'Reply with JSON only: {"sub_questions": [{"id": "sq01", "question": "...", '
-    '"queries": ["...", "..."], "success_criterion": "...", "must_pin_down": "..."}]}. '
+    '"queries": ["...", "..."], "success_criterion": "...", "must_pin_down": "..."}], '
+    '"sections": [{"title": "...", "sub_question_ids": ["sq01", "sq02"]}]}. '
     "Ids are sq01, sq02, ... in order."
 )
 
@@ -77,5 +93,6 @@ async def make_plan(topic: str, provider: Provider, cfg: QuarryConfig) -> Resear
     return ResearchPlan(
         topic=topic,
         sub_questions=payload.sub_questions,
+        sections=payload.sections,
         created_at=datetime.now(UTC),
     )

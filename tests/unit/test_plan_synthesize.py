@@ -14,12 +14,14 @@ from anthropic import AsyncAnthropic
 from quarry_ldr.config import QuarryConfig, SourceSettings
 from quarry_ldr.ingest.chunk import Chunk, HeuristicTokenCounter, make_chunk_id
 from quarry_ldr.ledger import Ledger, TokenUsage
-from quarry_ldr.pipeline.plan import ResearchPlan, SubQuestion, make_plan
+from quarry_ldr.pipeline.plan import ResearchPlan, SectionPlan, SubQuestion, make_plan
 from quarry_ldr.pipeline.synthesize import (
     SECTION_PROMPT,
     _corpus_entry,
     build_evidence_corpus,
     plan_sections,
+    section_groups,
+    section_word_range,
     select_evidence,
     synthesize,
 )
@@ -115,16 +117,14 @@ def test_selection_prefers_concrete_claims_on_a_near_tie() -> None:
 
 def test_plan_sections_shape_and_bounds(cfg: QuarryConfig) -> None:
     briefs = plan_sections(make_plan_obj(8), cfg)
-    assert briefs[0].title == "Overview"
-    assert briefs[-1].title == "Conclusions"
-    assert len(briefs) == 10  # overview + 8 + conclusions
-    assert briefs[1].sub_question_ids == ["sq01"]
+    assert len(briefs) == 8  # body only: findings, gaps, and sources come later
+    assert briefs[0].sub_question_ids == ["sq01"]
+    assert "Write 375 to 750 words." in briefs[0].instructions
 
     cfg.report.max_sections = 6
     briefs = plan_sections(make_plan_obj(12), cfg)
     assert len(briefs) <= 6
-    body = briefs[1:-1]
-    covered = [sq for brief in body for sq in brief.sub_question_ids]
+    covered = [sq for brief in briefs for sq in brief.sub_question_ids]
     assert covered == [f"sq{i:02d}" for i in range(1, 13)]  # all covered, in order
 
 
@@ -214,17 +214,19 @@ async def test_synthesize_sends_byte_identical_corpus_every_call(cfg: QuarryConf
         cfg,
         citations,
     )
-    assert len(draft.sections) == 10
-    assert len(set(fake.corpora)) == 1  # byte identical prefix on all 10 calls
+    assert len(draft.sections) == 8
+    assert len(set(fake.corpora)) == 1  # byte identical prefix on all 8 calls
     assert draft.corpus_hash
     assert all("[1]" in section.markdown for section in draft.sections)
     # ledger saw one cache write then nine reads
     summary = ledger.summary()
     assert summary.total_cache_write_tokens == 60000
-    assert summary.total_cache_read_tokens == 9 * 60000
+    assert (
+        summary.total_cache_read_tokens == 7 * 60000
+    )  # one write, then a cached read for each other section
     # every brief names its section title
-    assert 'titled "Overview"' in fake.briefs[0]
-    assert 'titled "Conclusions"' in fake.briefs[-1]
+    assert 'titled "Question 1 about the pilot"' in fake.briefs[0]
+    assert not any('titled "Overview"' in brief for brief in fake.briefs)
 
 
 async def test_synthesize_empty_evidence_still_produces_sections(cfg: QuarryConfig) -> None:
@@ -316,3 +318,67 @@ def test_a_name_from_chunk_text_reaches_the_corpus_through_its_claim() -> None:
 def test_section_prompt_requires_named_specifics() -> None:
     assert "Name the companies, projects, places" in SECTION_PROMPT
     assert "dates and figures" in SECTION_PROMPT
+
+
+def _with_sections(plan: ResearchPlan, sections: list[tuple[str, list[str]]]) -> ResearchPlan:
+    return plan.model_copy(
+        update={"sections": [SectionPlan(title=t, sub_question_ids=ids) for t, ids in sections]}
+    )
+
+
+GOOD_SECTIONS = [
+    ("Technology and chemistry", ["sq01", "sq02", "sq03"]),
+    ("Costs", ["sq04", "sq05"]),
+    ("Projects and companies", ["sq06", "sq07", "sq08"]),
+]
+
+
+def test_valid_plan_sections_are_used_as_given() -> None:
+    groups = section_groups(_with_sections(make_plan_obj(8), GOOD_SECTIONS), max_body=10)
+    assert [(g.title, g.sub_question_ids) for g in groups] == GOOD_SECTIONS
+
+
+def test_plan_sections_brief_uses_the_short_titles(cfg: QuarryConfig) -> None:
+    briefs = plan_sections(_with_sections(make_plan_obj(8), GOOD_SECTIONS), cfg)
+    assert [b.title for b in briefs] == [t for t, _ in GOOD_SECTIONS]
+    assert "Question 6 about the pilot?; Question 7" in briefs[2].instructions
+
+
+@pytest.mark.parametrize(
+    "sections",
+    [
+        [("A", ["sq01", "sq02", "sq03", "sq04"]), ("B", ["sq05", "sq06", "sq07"])],  # sq08 missing
+        [*GOOD_SECTIONS[:2], ("C", ["sq06", "sq07", "sq08", "sq01"])],  # sq01 twice
+        [*GOOD_SECTIONS[:2], ("C", ["sq06", "sq07", "sq08", "sq99"])],  # unknown id
+        [*GOOD_SECTIONS[:2], ("What do the projects cost?", ["sq06", "sq07", "sq08"])],
+        [*GOOD_SECTIONS[:2], ("Costs", ["sq06", "sq07", "sq08"])],  # duplicate title
+        [*GOOD_SECTIONS[:2], ("x" * 61, ["sq06", "sq07", "sq08"])],
+    ],
+)
+def test_invalid_plan_sections_fall_back_deterministically(
+    sections: list[tuple[str, list[str]]],
+) -> None:
+    plan = _with_sections(make_plan_obj(8), sections)
+    groups = section_groups(plan, max_body=10)
+    assert [g.sub_question_ids for g in groups] == [[f"sq{i:02d}"] for i in range(1, 9)]
+    assert groups[0].title == "Question 1 about the pilot"
+
+
+def test_too_many_plan_sections_fall_back_within_the_bound() -> None:
+    plan = _with_sections(make_plan_obj(8), [(f"Part {i}", [f"sq{i:02d}"]) for i in range(1, 9)])
+    groups = section_groups(plan, max_body=4)
+    assert len(groups) == 4
+    assert [sq for g in groups for sq in g.sub_question_ids] == [f"sq{i:02d}" for i in range(1, 9)]
+
+
+def test_fallback_titles_never_end_on_a_dangling_word() -> None:
+    plan = make_plan_obj(8)
+    long_q = "What is the installed capacity and commissioning schedule of the largest of the"
+    plan.sub_questions[0] = plan.sub_questions[0].model_copy(update={"question": long_q + "?"})
+    title = section_groups(plan, max_body=10)[0].title
+    assert len(title) <= 60
+    assert title.split()[-1].lower() not in {"of", "the", "and"}
+
+
+def test_section_word_range_splits_the_report_band(cfg: QuarryConfig) -> None:
+    assert section_word_range(cfg, 6) == (500, 1000)

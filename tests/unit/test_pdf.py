@@ -99,10 +99,21 @@ def test_render_pdf_compiles_offline(tmp_path: Path) -> None:
         topic="Sand batteries, locally",
         sections=[
             ReportSection(
-                title="Overview",
+                title="Key findings",
+                markdown=(
+                    "The bottom line [1].\n\n"
+                    "- **High confidence** (3 sites): A finding [1][2].\n"
+                    "- **Low confidence** (1 site): Another [2]."
+                ),
+            ),
+            ReportSection(
+                title="Pilot plants",
                 markdown="A claim [1]. **Bold** finding [2].\n\n### Detail\n\n- point [1]",
             ),
-            ReportSection(title="Conclusions", markdown="Wrap up [2]."),
+            ReportSection(
+                title="What we could not establish",
+                markdown="- **What did it cost?** The sources reviewed did not establish this.",
+            ),
         ],
     )
     chart = tmp_path / "chart.svg"
@@ -118,3 +129,8 @@ def test_render_pdf_compiles_offline(tmp_path: Path) -> None:
     data = out.read_bytes()
     assert data[:5] == b"%PDF-"
     assert len(data) > 5_000
+
+
+def test_labeled_findings_convert_to_typst_bullets() -> None:
+    typst = _markdown_to_typst("- **High confidence** (3 sites): A finding [1][2].")
+    assert typst == "- #strong[High confidence] (3 sites): A finding \\[1\\]\\[2\\]."

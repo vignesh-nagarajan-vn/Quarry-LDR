@@ -293,7 +293,10 @@ async def test_single_pass_produces_cited_report(cfg: QuarryConfig) -> None:
 
     # Cited sections, references resolving to fixture URLs, ledger, manifest.
     assert report.startswith("# the vesterholm sand battery pilot")
-    assert "## Overview" in report and "## Conclusions" in report
+    assert report.index("## Key findings") < report.index("## References")
+    assert "## Overview" not in report and "## Conclusions" not in report
+    assert report.index("## What we could not establish") < report.index("## Sources")
+    assert re.search(r"- \*\*(High|Medium|Low) confidence\*\* \(\d+ sites?\): ", report)
     assert re.search(r"citing \[\d+\]", report)
     assert "## References" in report
     assert ".example/" in report
@@ -305,7 +308,7 @@ async def test_single_pass_produces_cited_report(cfg: QuarryConfig) -> None:
     assert result.n_sources < 40
     assert result.n_chunks_indexed > 0
     assert result.n_chunks_evidence > 0
-    assert provider.synth_calls == 10
+    assert provider.synth_calls == 8
     assert len(set(provider.corpora)) == 1
 
     # The branded PDF ships alongside the markdown by default.
@@ -434,7 +437,7 @@ async def test_gap_loop_runs_second_iteration_then_saturates(cfg: QuarryConfig) 
 
     assert result.iterations == 2
     assert provider.gap_calls == 2
-    assert provider.synth_calls == 10  # synthesis still runs exactly once
+    assert provider.synth_calls == 8  # synthesis still runs exactly once, one call per section
     async with RunStore(cfg.run.data_dir / "runs.db") as store:
         run_id = result.run_id
         for iteration in (0, 1):
@@ -461,10 +464,11 @@ async def test_max_iterations_bounds_unsaturated_loop(cfg: QuarryConfig) -> None
         result = await _orchestrator(cfg, provider).research("bounded loop case")
 
     assert result.iterations == 2
-    # Gap runs after iteration 0 only: the final allowed iteration skips it.
-    assert provider.gap_calls == 1
+    # Gap runs on the final allowed iteration too, for the report's gaps
+    # section, but no third search follows it.
+    assert provider.gap_calls == 2
     async with RunStore(cfg.run.data_dir / "runs.db") as store:
-        assert (await store.get_stage(result.run_id, Stage.GAP, 1)) is None
+        assert (await store.get_stage(result.run_id, Stage.GAP, 1)) is not None
         assert (await store.get_stage(result.run_id, Stage.SEARCH, 2)) is None
 
 
@@ -500,7 +504,7 @@ async def test_local_engine_runs_with_no_api_and_zero_cost(cfg: QuarryConfig) ->
         result = await orchestrator.research("the vesterholm sand battery pilot, locally")
 
     assert result.total_cost_usd == 0.0
-    assert synth_fake.calls >= 11  # 1 plan + 10 sections
+    assert synth_fake.calls >= 18  # plan, 8 sections, 8 guarded edits, key findings
     report = Path(result.report_path).read_text(encoding="utf-8")
     assert re.search(r"citing \[\d+\]", report)
     assert "## References" in report
@@ -548,7 +552,7 @@ async def test_assisted_engine_routes_gap_and_polish_to_the_cheap_model(
     assert api_provider.gap_models == [cfg.models.assisted]
     assert api_provider.polish_models == [cfg.models.assisted]
     assert api_provider.synth_calls == 0  # cached-corpus synthesis never runs
-    assert synth_fake.calls >= 11  # 1 plan + 10 sections drafted locally
+    assert synth_fake.calls >= 18  # plan, 8 sections, 8 guarded edits, key findings drafted locally
     report = Path(result.report_path).read_text(encoding="utf-8")
     assert re.search(r"citing \[\d+\]", report)
     assert "## References" in report

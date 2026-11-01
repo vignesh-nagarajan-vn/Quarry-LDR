@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import pytest
+
 from quarry_ldr.config import QuarryConfig, SourceSettings
 from quarry_ldr.ingest.chunk import Chunk, HeuristicTokenCounter, make_chunk_id
 from quarry_ldr.pipeline.plan import ResearchPlan, SubQuestion
 from quarry_ldr.pipeline.synthesize import (
-    _digest_corpus,
+    DraftReport,
+    ReportSection,
     _section_corpus,
     _strip_invalid_citations,
     _strip_leading_heading,
     build_evidence_corpus,
+    edit_sections_local,
     synthesize_local,
 )
 from quarry_ldr.pipeline.triage import TriagedChunk, TriageVerdict
@@ -93,20 +97,16 @@ class FakeSectionProvider:
         return kwargs["schema"].model_validate({"markdown": text})
 
 
-async def test_local_sections_use_digest_and_sliced_corpora(cfg: QuarryConfig) -> None:
+async def test_local_sections_use_sliced_corpora_only(cfg: QuarryConfig) -> None:
     fake = FakeSectionProvider()
     citations = CitationIndex()
     draft = await synthesize_local(
         make_plan_obj(8), make_evidence(4), cast(Provider, fake), cfg, citations
     )
-    assert len(draft.sections) == 10
+    assert len(draft.sections) == 8  # one per sub-question, no overview or conclusions
     assert draft.corpus_hash == ""
     assert len(citations) == 4  # numbered up front from the full selection
-    # Overview (first) and Conclusions (last) get the digest; body sections
-    # get a real per-section corpus.
-    assert fake.prompts[0].startswith("EVIDENCE DIGEST")
-    assert fake.prompts[-1].startswith("EVIDENCE DIGEST")
-    assert fake.prompts[1].startswith("EVIDENCE CORPUS")
+    assert all(prompt.startswith("EVIDENCE CORPUS") for prompt in fake.prompts)
     assert all("Reply with JSON only" in prompt for prompt in fake.prompts)
     assert set(fake.max_tokens_seen) == {cfg.synth.section_max_tokens}
 
@@ -134,8 +134,8 @@ async def test_section_prompts_respect_budget(cfg: QuarryConfig) -> None:
     # per section; twelve exist across the two sub-questions.
     evidence = make_evidence(12, text_len=300)
     await synthesize_local(make_plan_obj(8), evidence, cast(Provider, fake), cfg, CitationIndex())
-    scaffold_allowance = 250  # SECTION_PROMPT + local rules + headers
-    for prompt in fake.prompts[1:-1]:
+    scaffold_allowance = 320  # SECTION_PROMPT (with specifics and length rules) + local rules
+    for prompt in fake.prompts:
         if prompt.startswith("EVIDENCE CORPUS"):
             assert counter.count(prompt) <= cfg.synth.section_budget_tokens + scaffold_allowance
 
@@ -178,15 +178,53 @@ async def test_empty_section_retries_once(cfg: QuarryConfig) -> None:
         make_plan_obj(8), make_evidence(2), cast(Provider, fake), cfg, CitationIndex()
     )
     assert draft.sections[0].markdown == "Recovered [1]."
-    assert fake.calls == 11  # 10 sections + 1 retry
+    assert fake.calls == 9  # 8 sections + 1 retry
 
 
-def test_digest_lists_top_claims_only() -> None:
-    evidence = make_evidence(10)  # five per sub-question
-    citations = CitationIndex()
-    build_evidence_corpus(evidence, citations)
-    digest = _digest_corpus(make_plan_obj(8), group_by_sq(evidence), citations)
-    # Three claims per evidenced sub-question, tagged with global numbers.
-    assert digest.count("Claim") == 6
-    assert "(no evidence collected)" in digest  # sq03..sq08 have none
-    assert digest.startswith("EVIDENCE DIGEST")
+def _two_sections() -> DraftReport:
+    return DraftReport(
+        topic="t",
+        sections=[
+            ReportSection(title="Plants", markdown="Halvard Grid runs a 5 MW plant in Tromso [1]."),
+            ReportSection(title="Costs", markdown="Costs reached 20 dollars per kWh in 2027 [2]."),
+        ],
+    )
+
+
+async def test_local_edit_applies_when_markers_and_length_hold(cfg: QuarryConfig) -> None:
+    fake = FakeSectionProvider(
+        scripted=[
+            "Halvard Grid operates a 5 MW plant in Tromso [1].",
+            "By 2027 costs had reached 20 dollars per kWh [2].",
+        ]
+    )
+    edited = await edit_sections_local(_two_sections(), cast(Provider, fake), cfg)
+    assert [s.markdown for s in edited.sections] == fake._scripted
+    assert 'titled "Plants"' in fake.prompts[0]
+    assert "Halvard Grid runs a 5 MW plant in Tromso [1]." in fake.prompts[0]
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Halvard Grid operates a 5 MW plant in Tromso.",  # marker dropped
+        "Halvard Grid operates a 5 MW plant in Tromso [1][3].",  # marker added
+        "A plant [1].",  # shrunk to a rewrite
+        "Halvard Grid operates a 5 MW plant in Tromso, Norway, the largest such plant "
+        "anywhere in the region, built after years of planning and debate [1].",  # grew
+    ],
+)
+async def test_local_edit_is_discarded_when_a_guard_fails(cfg: QuarryConfig, reply: str) -> None:
+    fake = FakeSectionProvider(scripted=[reply, "Costs reached 20 dollars per kWh by 2027 [2]."])
+    edited = await edit_sections_local(_two_sections(), cast(Provider, fake), cfg)
+    assert edited.sections[0] == _two_sections().sections[0]
+    assert edited.sections[1].markdown == "Costs reached 20 dollars per kWh by 2027 [2]."
+
+
+async def test_local_edit_failure_keeps_the_draft(cfg: QuarryConfig) -> None:
+    class Broken:
+        async def complete_typed(self, **kwargs: Any) -> Any:
+            raise ValueError("malformed JSON")
+
+    edited = await edit_sections_local(_two_sections(), cast(Provider, Broken()), cfg)
+    assert edited == _two_sections()

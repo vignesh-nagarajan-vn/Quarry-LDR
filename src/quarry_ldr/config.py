@@ -166,6 +166,8 @@ class ReportSettings(BaseModel):
     max_sections: int = 12
     corpus_budget_tokens: int = 45000
     max_paragraph_words: int = 160
+    target_words_min: int = 3000
+    target_words_max: int = 6000
     pdf: bool = True
 
 

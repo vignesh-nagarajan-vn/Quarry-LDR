@@ -40,6 +40,12 @@ from quarry_ldr.ingest.search import SearxClient
 from quarry_ldr.ledger import Ledger
 from quarry_ldr.logging import get_logger, setup_logging
 from quarry_ldr.pipeline.conflicts import Conflict, disagreement_markdown, find_conflicts
+from quarry_ldr.pipeline.findings import (
+    KEY_FINDINGS_TITLE,
+    gaps_section,
+    label_findings,
+    write_key_findings,
+)
 from quarry_ldr.pipeline.gap import GapAnalysis, analyze_gaps, specificity_followups
 from quarry_ldr.pipeline.plan import ResearchPlan, make_plan
 from quarry_ldr.pipeline.retrieve import rerank_candidates, retrieve_candidates
@@ -47,6 +53,7 @@ from quarry_ldr.pipeline.synthesize import (
     DraftReport,
     ReportSection,
     build_evidence_corpus,
+    edit_sections_local,
     polish_draft,
     select_evidence,
     synthesize,
@@ -291,6 +298,7 @@ class Orchestrator:
             evidence_by_key: dict[tuple[str, str], TriagedChunk] = {}
             judged: set[tuple[str, str]] = set()
             asked: set[str] = set()
+            final_gap: GapAnalysis | None = None
             totals = {"n_queries": 0, "n_urls_fetched": 0, "n_docs_extracted": 0, "n_chunks": 0}
             n_sources = 0
             n_kept_total = 0
@@ -414,10 +422,8 @@ class Orchestrator:
                 n_kept_total += len(kept_chunks)
                 await store.set_run_iteration(run_id, iteration)
 
-                if iteration + 1 >= self.cfg.run.max_iterations:
-                    logger.info("loop_max_iterations", iterations=iteration + 1)
-                    break
-
+                # GAP runs on the final pass too: its assessments become the
+                # report's "What we could not establish" section.
                 if mode == "local":
                     # GAP runs right after TRIAGE while the 4B server slot is
                     # hot: routing it through triage costs zero server swaps,
@@ -474,6 +480,10 @@ class Orchestrator:
                 )
                 persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
                 gap = GapAnalysis.model_validate(gap_payload)
+                final_gap = gap
+                if iteration + 1 >= self.cfg.run.max_iterations:
+                    logger.info("loop_max_iterations", iterations=iteration + 1)
+                    break
                 asked.update(q)
                 # Code keeps searching when evidence stays vague, even if the
                 # model calls it saturated; run.max_iterations still bounds it.
@@ -518,6 +528,7 @@ class Orchestrator:
                     synth_server,
                     polish_provider,
                     conflicts,
+                    final_gap,
                 ),
             )
             persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
@@ -862,6 +873,7 @@ class Orchestrator:
         synth_server: LlamaServer | None = None,
         polish_provider: Provider | None = None,
         conflicts: list[Conflict] | None = None,
+        final_gap: GapAnalysis | None = None,
     ) -> dict[str, Any]:
         if synth_server is not None:
             await synth_server.start()
@@ -873,6 +885,9 @@ class Orchestrator:
                 # Assisted mode: one guarded models.assisted pass over the
                 # assembled draft, before VERIFY judges the final prose.
                 draft = await polish_draft(draft, polish_provider, self.cfg)
+            else:
+                # Local mode: one guarded 8B edit per section, still $0.
+                draft = await edit_sections_local(draft, provider, self.cfg)
         # Deterministic cleanup on every engine, before VERIFY judges the prose.
         draft, cleanup = clean_draft(
             draft,
@@ -881,17 +896,27 @@ class Orchestrator:
             self.cfg.report.max_paragraph_words,
         )
         logger.info("cleanup_done", **cleanup.model_dump())
+        # Key findings are written last, from the cleaned body, then cleaned
+        # by the same marker rules; confidence labels are added at RENDER.
+        findings = await write_key_findings(
+            draft,
+            provider,
+            self.cfg,
+            citations,
+            max_tokens=8192
+            if self.cfg.engine.mode == "premium"
+            else self.cfg.synth.section_max_tokens,
+        )
+        findings_text, _, _ = fix_markers(findings.markdown, citations)
+        sections = [findings.model_copy(update={"markdown": findings_text}), *draft.sections]
         disagreements = disagreement_markdown(conflicts or [], citations)
         if disagreements:
             # Rendered by code so no writer can omit it; VERIFY still judges it.
-            draft = draft.model_copy(
-                update={
-                    "sections": [
-                        *draft.sections,
-                        ReportSection(title="Where sources disagree", markdown=disagreements),
-                    ]
-                }
-            )
+            sections.append(ReportSection(title="Where sources disagree", markdown=disagreements))
+        gaps = gaps_section(plan, final_gap)
+        if gaps is not None:
+            sections.append(gaps)
+        draft = draft.model_copy(update={"sections": sections})
         logger.info("synthesize_done", n_sections=len(draft.sections), engine=self.cfg.engine.mode)
         return {"draft": draft.model_dump(mode="json"), "corpus_hash": draft.corpus_hash}
 
@@ -931,7 +956,10 @@ class Orchestrator:
             text, _, n_stripped = fix_markers(section.markdown, citations)
             if n_stripped:
                 logger.warning("render_markers_stripped", title=section.title, n=n_stripped)
-            sections.append(section.model_copy(update={"markdown": text}))
+            section = section.model_copy(update={"markdown": text})
+            if section.title == KEY_FINDINGS_TITLE:
+                section = label_findings(section, citations, self.cfg.source)
+            sections.append(section)
         draft = draft.model_copy(update={"sections": sections})
         draft = draft.model_copy(
             update={
