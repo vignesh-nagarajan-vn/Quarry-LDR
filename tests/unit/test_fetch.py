@@ -294,3 +294,53 @@ async def test_user_agent_header_is_sent(cfg: QuarryConfig) -> None:
         assert result.status == FetchStatus.OK
         sent_request = page_route.calls.last.request
         assert sent_request.headers["user-agent"] == cfg.fetch.user_agent
+
+
+async def test_pdf_is_fetched_under_its_own_size_limit(cfg: QuarryConfig) -> None:
+    cfg.fetch.max_bytes = 10
+    fetcher = Fetcher(cfg.fetch)
+    body = b"%PDF-" + b"x" * 100
+    with respx.mock:
+        _allow_robots("pdfs.example")
+        respx.get("https://pdfs.example/a.pdf").mock(
+            return_value=httpx.Response(
+                200, content=body, headers={"content-type": "application/pdf"}
+            )
+        )
+        result = await fetcher.fetch("https://pdfs.example/a.pdf")
+    await fetcher.aclose()
+    assert result.status == FetchStatus.OK
+    assert result.read_bytes() == body
+
+
+async def test_generic_binary_counts_as_pdf_only_with_a_pdf_url(cfg: QuarryConfig) -> None:
+    fetcher = Fetcher(cfg.fetch)
+    headers = {"content-type": "application/octet-stream"}
+    with respx.mock:
+        _allow_robots("pdfs.example")
+        respx.get("https://pdfs.example/a.pdf").mock(
+            return_value=httpx.Response(200, content=b"%PDF-1", headers=headers)
+        )
+        respx.get("https://pdfs.example/a.zip").mock(
+            return_value=httpx.Response(200, content=b"PK", headers=headers)
+        )
+        as_pdf = await fetcher.fetch("https://pdfs.example/a.pdf")
+        as_zip = await fetcher.fetch("https://pdfs.example/a.zip")
+    await fetcher.aclose()
+    assert as_pdf.status == FetchStatus.OK
+    assert as_zip.status == FetchStatus.NON_HTML
+
+
+async def test_oversized_pdf_is_rejected(cfg: QuarryConfig) -> None:
+    cfg.fetch.max_pdf_bytes = 10
+    fetcher = Fetcher(cfg.fetch)
+    with respx.mock:
+        _allow_robots("pdfs.example")
+        respx.get("https://pdfs.example/big.pdf").mock(
+            return_value=httpx.Response(
+                200, content=b"%PDF-" + b"x" * 100, headers={"content-type": "application/pdf"}
+            )
+        )
+        result = await fetcher.fetch("https://pdfs.example/big.pdf")
+    await fetcher.aclose()
+    assert result.status == FetchStatus.TOO_LARGE

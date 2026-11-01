@@ -68,7 +68,9 @@ class SearxClient:
             return nullcontext(self._client)
         return httpx.AsyncClient(timeout=self.timeout_s)
 
-    async def search(self, query: str, num_results: int = 10) -> list[SearchResult]:
+    async def search(
+        self, query: str, num_results: int = 10, categories: str | None = None
+    ) -> list[SearchResult]:
         """Run one query; results are URL-deduplicated and capped at num_results.
 
         Raises SearxngError with remediation when the instance is down or
@@ -79,7 +81,11 @@ class SearxClient:
             try:
                 response = await client.get(
                     url,
-                    params={"q": query, "format": "json"},
+                    params={
+                        "q": query,
+                        "format": "json",
+                        **({"categories": categories} if categories else {}),
+                    },
                     timeout=self.timeout_s,
                 )
             except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
@@ -137,8 +143,16 @@ class SearxClient:
                 break
         return results
 
-    async def search_many(self, queries: list[str], num_results: int = 10) -> list[SearchResult]:
+    async def search_many(
+        self,
+        queries: list[str],
+        num_results: int = 10,
+        science_queries: list[str] | None = None,
+    ) -> list[SearchResult]:
         """Run several queries with bounded concurrency; merged, URL-deduplicated.
+
+        ``science_queries`` also run against SearXNG's science category, which
+        reaches papers and repositories that general web results bury.
 
         The bound keeps a burst of plan queries from fanning out to every
         upstream engine at once: an unbounded 60-query gather got this IP
@@ -146,11 +160,14 @@ class SearxClient:
         """
         semaphore = asyncio.Semaphore(self.max_concurrency)
 
-        async def bounded_search(query: str) -> list[SearchResult]:
+        async def bounded_search(query: str, categories: str | None = None) -> list[SearchResult]:
             async with semaphore:
-                return await self.search(query, num_results=num_results)
+                return await self.search(query, num_results=num_results, categories=categories)
 
-        per_query_results = await asyncio.gather(*(bounded_search(query) for query in queries))
+        per_query_results = await asyncio.gather(
+            *(bounded_search(query) for query in queries),
+            *(bounded_search(query, "science") for query in science_queries or []),
+        )
         seen: set[str] = set()
         merged: list[SearchResult] = []
         for query_results in per_query_results:

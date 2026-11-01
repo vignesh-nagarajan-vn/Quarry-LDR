@@ -8,9 +8,12 @@ Implemented in M4.
 
 from __future__ import annotations
 
+import io
 import re
 import xml.etree.ElementTree as ET
+from urllib.parse import unquote, urlsplit
 
+import pypdf
 import trafilatura
 from pydantic import BaseModel, Field
 
@@ -33,6 +36,12 @@ _WHITESPACE_RE = re.compile(r"\s+")
 # rend attribute we don't recognise (or that carries none) default to this
 # level, i.e. treated like a normal section heading rather than the title.
 _DEFAULT_HEADING_LEVEL = 2
+
+_PDF_MAGIC = b"%PDF-"
+_MAX_PDF_PAGES = 200
+_HYPHENATED_BREAK_RE = re.compile(r"(?<=[a-z])-\s*\n\s*(?=[a-z])")
+# A page whose text is mostly symbols is a broken font map, not evidence.
+_MIN_PDF_LETTER_RATIO = 0.5
 
 
 class Block(BaseModel):
@@ -149,9 +158,43 @@ def _merge_tiny_blocks(raw_blocks: list[tuple[list[str], str]]) -> list[Block]:
     return merged
 
 
+def _pdf_page_text(raw: str) -> str:
+    text = _normalize_ws(_HYPHENATED_BREAK_RE.sub("", raw))
+    letters = sum(1 for char in text if char.isalpha())
+    return text if text and letters / len(text) >= _MIN_PDF_LETTER_RATIO else ""
+
+
+def _extract_pdf(content: bytes, url: str) -> ExtractedDoc | None:
+    """One block per page, cited as "Page n". Returns None for anything
+    unreadable: a malformed PDF from the open web must never end a run, and
+    pypdf raises many exception types on bad input, so this boundary catches
+    them all."""
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(content))
+        if reader.is_encrypted:
+            return None
+        blocks: list[Block] = []
+        for number, page in enumerate(reader.pages[:_MAX_PDF_PAGES], start=1):
+            text = _pdf_page_text(page.extract_text() or "")
+            if text:
+                blocks.append(Block(heading_path=[f"Page {number}"], text=text))
+        metadata = reader.metadata
+        title = _normalize_ws(str(metadata.title)) if metadata and metadata.title else ""
+    except Exception as exc:
+        logger.warning("extract.pdf_failed", url=url, error=str(exc)[:200])
+        return None
+    if sum(len(block.text) for block in blocks) < MIN_DOC_TEXT_CHARS:
+        return None
+    if not title:
+        title = unquote(urlsplit(url).path.rsplit("/", 1)[-1])
+    return ExtractedDoc(url=url, title=title, blocks=blocks)
+
+
 def extract_document(html: bytes | str, url: str) -> ExtractedDoc | None:
-    """Extract main content. Returns None when nothing useful survives
-    (JS-only shells, paywall stubs, boilerplate-only pages)."""
+    """Extract main content from a web page or PDF. Returns None when nothing
+    useful survives (JS-only shells, paywall stubs, boilerplate-only pages)."""
+    if isinstance(html, bytes) and html[:1024].lstrip().startswith(_PDF_MAGIC):
+        return _extract_pdf(html, url)
     text_html = _decode(html)
 
     xml_output = trafilatura.extract(

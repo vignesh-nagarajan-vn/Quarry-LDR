@@ -9,11 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from quarry_ldr.config import SourceSettings
 from quarry_ldr.ingest.chunk import Chunk
 from quarry_ldr.ledger import Ledger, TokenUsage
 from quarry_ldr.pipeline.synthesize import DraftReport, ReportSection
 from quarry_ldr.report.citations import CitationError, CitationIndex
-from quarry_ldr.report.render import RunManifest, render_report, write_report
+from quarry_ldr.report.render import RunManifest, render_report, sources_section, write_report
 
 RUN_DATE = datetime(2026, 8, 3, 12, 0, tzinfo=UTC)
 
@@ -177,3 +178,57 @@ def test_write_report_creates_out_dir(tmp_path: Path) -> None:
     path = write_report("# Title\n", out_dir, "run-xyz")
     assert path.is_file()
     assert path.parent == out_dir
+
+
+def _sources_draft(*urls: str) -> tuple[DraftReport, CitationIndex]:
+    citations = CitationIndex()
+    markers = []
+    for position, url in enumerate(urls):
+        chunk = Chunk(
+            chunk_id=f"c{position}",
+            url=url,
+            text="t",
+            token_count=1,
+            position=position,
+            start_char=0,
+            end_char=1,
+        )
+        markers.append(f"[{citations.add(chunk)}]")
+    draft = DraftReport(
+        topic="t", sections=[ReportSection(title="Body", markdown=" ".join(markers))]
+    )
+    return draft, citations
+
+
+def test_sources_section_reports_tier_mix_and_counts_markers_only() -> None:
+    draft, citations = _sources_draft(
+        "https://www.energy.gov/a",
+        "https://www.nature.com/b",
+        "https://c.example/c",
+        "https://d.example/d",
+        "https://e.example/e",
+        "https://f.example/f",
+    )
+    section = sources_section(draft, citations, SourceSettings())
+    assert section.title == "Sources"
+    assert "6 citations to 6 independent sites" in section.markdown
+    assert "Government, regulatory, and standards bodies:** 17 percent" in section.markdown
+    assert "Caution" not in section.markdown
+
+
+def test_sources_section_warns_about_concentration() -> None:
+    draft, citations = _sources_draft(
+        "https://flood.example/a", "https://flood.example/b", "https://other.example/c"
+    )
+    markdown = sources_section(draft, citations, SourceSettings()).markdown
+    assert "Caution: 67 percent of citations come from one site, flood.example" in markdown
+
+
+def test_sources_section_handles_one_site_and_no_citations() -> None:
+    draft, citations = _sources_draft("https://only.example/a")
+    assert (
+        "every citation comes from one site"
+        in sources_section(draft, citations, SourceSettings()).markdown
+    )
+    empty = DraftReport(topic="t", sections=[ReportSection(title="Body", markdown="No markers.")])
+    assert "cites no sources" in sources_section(empty, CitationIndex(), SourceSettings()).markdown

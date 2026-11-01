@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from quarry_ldr.config import QuarryConfig
+from quarry_ldr.config import QuarryConfig, SourceSettings
 from quarry_ldr.ingest.chunk import Chunk, HeuristicTokenCounter, make_chunk_id
 from quarry_ldr.pipeline.plan import ResearchPlan, SubQuestion
 from quarry_ldr.pipeline.synthesize import (
@@ -116,7 +116,9 @@ def test_section_corpus_numbers_come_from_global_index() -> None:
     citations = CitationIndex()
     global_corpus = build_evidence_corpus(evidence, citations)
     grouped = group_by_sq(evidence)
-    section = _section_corpus(grouped, ["sq02"], citations, budget_tokens=100_000)
+    section = _section_corpus(
+        grouped, ["sq02"], citations, budget_tokens=100_000, source=SourceSettings()
+    )
     for item in grouped["sq02"]:
         number = citations.add(item.chunk)  # returns the existing number
         assert f"[{number}] source:" in section

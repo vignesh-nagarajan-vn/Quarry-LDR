@@ -20,8 +20,9 @@ from collections import Counter, deque
 
 from pydantic import BaseModel, Field
 
-from quarry_ldr.config import QuarryConfig
+from quarry_ldr.config import QuarryConfig, SourceSettings
 from quarry_ldr.ingest.chunk import HeuristicTokenCounter, TokenCounter
+from quarry_ldr.ingest.sources import adjusted_score, site_of
 from quarry_ldr.ledger import CostCapExceeded
 from quarry_ldr.logging import get_logger
 from quarry_ldr.pipeline.plan import ResearchPlan
@@ -67,6 +68,7 @@ def select_evidence(
     evidence: list[TriagedChunk],
     budget_tokens: int,
     counter: TokenCounter | None = None,
+    source: SourceSettings | None = None,
 ) -> list[TriagedChunk]:
     """Trim evidence to the synthesis token budget.
 
@@ -75,22 +77,43 @@ def select_evidence(
     sub-question is dropped wholesale. An entry that no longer fits is
     skipped and selection continues, so one oversized chunk cannot end the
     pass early. Deterministic for a given evidence set.
+
+    With ``source``, order follows the tier-adjusted score and no site spends
+    more than its share of the budget. The share widens to ``1 / n_sites``
+    when too few sites exist for the configured cap to be possible, so a thin
+    corpus keeps its evidence.
     """
     active_counter: TokenCounter = counter if counter is not None else HeuristicTokenCounter()
-    ordered = sorted(evidence, key=lambda t: (t.sub_question_id, -t.rerank_score, t.chunk.chunk_id))
+
+    def rank(item: TriagedChunk) -> float:
+        if source is None:
+            return item.rerank_score
+        return adjusted_score(item.chunk.url, item.rerank_score, source)
+
+    ordered = sorted(evidence, key=lambda t: (t.sub_question_id, -rank(t), t.chunk.chunk_id))
     grouped: dict[str, deque[TriagedChunk]] = {}
     for item in ordered:
         grouped.setdefault(item.sub_question_id, deque()).append(item)
     queues = deque(grouped[sq_id] for sq_id in sorted(grouped))
+
+    site_budget = float(budget_tokens)
+    if source is not None and evidence:
+        n_sites = len({site_of(item.chunk.url) for item in evidence})
+        site_budget = budget_tokens * max(source.max_site_share, 1 / n_sites)
+    site_spent: dict[str, int] = {}
+
     kept: list[TriagedChunk] = []
     spent = 0
     while queues:
         queue = queues.popleft()
         item = queue.popleft()
         cost = active_counter.count(_corpus_entry(item, 0))
-        if spent + cost <= budget_tokens:
+        site = site_of(item.chunk.url)
+        within_site = site_spent.get(site, 0) + cost <= site_budget
+        if spent + cost <= budget_tokens and within_site:
             kept.append(item)
             spent += cost
+            site_spent[site] = site_spent.get(site, 0) + cost
         if queue:
             queues.append(queue)
     return kept
@@ -193,7 +216,7 @@ async def synthesize(
     citations: CitationIndex,
 ) -> DraftReport:
     """Section-by-section models.synthesize calls over the cached corpus."""
-    selected = select_evidence(evidence, cfg.report.corpus_budget_tokens)
+    selected = select_evidence(evidence, cfg.report.corpus_budget_tokens, source=cfg.source)
     if len(selected) < len(evidence):
         logger.info(
             "evidence_budget_applied",
@@ -274,12 +297,13 @@ def _section_corpus(
     sub_question_ids: list[str],
     citations: CitationIndex,
     budget_tokens: int,
+    source: SourceSettings,
 ) -> str:
     """Corpus for one body section: only its sub-questions' evidence, trimmed
     with the same round-robin policy, numbered from the global index
     (``add()`` returns the existing number for chunks numbered up front)."""
     scoped = [item for sq_id in sub_question_ids for item in evidence_by_sq.get(sq_id, [])]
-    trimmed = select_evidence(scoped, budget_tokens)
+    trimmed = select_evidence(scoped, budget_tokens, source=source)
     return build_evidence_corpus(trimmed, citations)
 
 
@@ -327,7 +351,7 @@ async def synthesize_local(
     the grammar-constrained JSON path the triage stage already proves
     against llama-server.
     """
-    selected = select_evidence(evidence, cfg.report.corpus_budget_tokens)
+    selected = select_evidence(evidence, cfg.report.corpus_budget_tokens, source=cfg.source)
     if len(selected) < len(evidence):
         logger.info(
             "evidence_budget_applied",
@@ -354,7 +378,11 @@ async def synthesize_local(
             corpus = digest
         else:
             corpus = _section_corpus(
-                evidence_by_sq, brief.sub_question_ids, citations, cfg.synth.section_budget_tokens
+                evidence_by_sq,
+                brief.sub_question_ids,
+                citations,
+                cfg.synth.section_budget_tokens,
+                cfg.source,
             )
         prompt = (
             corpus

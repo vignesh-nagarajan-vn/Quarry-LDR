@@ -283,7 +283,7 @@ async def test_search_many_bounds_concurrency() -> None:
     active = 0
     peak = 0
 
-    async def fake_search(query: str, num_results: int = 10) -> list:
+    async def fake_search(query: str, num_results: int = 10, categories: str | None = None) -> list:
         nonlocal active, peak
         active += 1
         peak = max(peak, active)
@@ -292,8 +292,22 @@ async def test_search_many_bounds_concurrency() -> None:
         return []
 
     client.search = fake_search  # type: ignore[method-assign]
-    await client.search_many([f"q{i}" for i in range(12)], num_results=5)
+    await client.search_many(
+        [f"q{i}" for i in range(12)], num_results=5, science_queries=[f"s{i}" for i in range(6)]
+    )
     assert peak <= 3
+
+
+async def test_science_queries_use_the_science_category() -> None:
+    with respx.mock:
+        route = respx.get(SEARCH_URL).mock(return_value=_json_response([]))
+        client = SearxClient(base_url=BASE_URL)
+        await client.search_many(["general"], science_queries=["papers"])
+    params = sorted(
+        (call.request.url.params["q"], call.request.url.params.get("categories", ""))
+        for call in route.calls
+    )
+    assert params == [("general", ""), ("papers", "science")]
 
 
 async def test_health_true_on_success() -> None:

@@ -44,6 +44,7 @@ search:
   results_per_query: 10
   timeout_s: 15.0
   max_concurrency: 4       # concurrent queries against SearXNG; unbounded bursts get upstream engines suspended
+  science_search: true     # also query the science category, once per sub-question on the first pass
 
 fetch:
   user_agent: "QuarryLDR/1.0 (+https://github.com/vignesh-nagarajan-vn/Quarry-LDR)"
@@ -51,6 +52,7 @@ fetch:
   max_concurrency: 8       # global concurrent fetches
   timeout_s: 20.0
   max_bytes: 5000000       # responses larger than this are truncated-rejected
+  max_pdf_bytes: 20000000  # the same limit for PDFs, which run larger than web pages
   cache_dir: data/cache/fetch
 
 chunk:
@@ -96,6 +98,14 @@ api:
   batch_poll_s: 30         # Batch API poll interval
 
 source:
+  max_site_share: 0.2      # most of the evidence budget any one site may supply (relaxed only when too few sites exist)
+  rerank_site_limit: 8     # most of a sub-question's rerank_top_k any one site may fill
+  tier_bonus:              # added to reranker logits when ranking; the raw score stays on record
+    primary: 2.0
+    scholarly: 2.0
+    established: 0.5
+    general: 0.0
+    low: -3.0
   overrides: {}            # domain to tier (primary|scholarly|established|general|low); beats built-in rating rules
 
 report:
