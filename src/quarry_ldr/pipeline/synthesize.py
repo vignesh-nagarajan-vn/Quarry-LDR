@@ -25,6 +25,7 @@ from quarry_ldr.ingest.chunk import HeuristicTokenCounter, TokenCounter
 from quarry_ldr.ingest.sources import adjusted_score, site_of
 from quarry_ldr.ledger import CostCapExceeded
 from quarry_ldr.logging import get_logger
+from quarry_ldr.pipeline.conflicts import Conflict, conflict_notes
 from quarry_ldr.pipeline.plan import ResearchPlan
 from quarry_ldr.pipeline.triage import TriagedChunk
 from quarry_ldr.providers.base import Provider, hash_corpus
@@ -214,6 +215,7 @@ async def synthesize(
     provider: Provider,
     cfg: QuarryConfig,
     citations: CitationIndex,
+    conflicts: list[Conflict] | None = None,
 ) -> DraftReport:
     """Section-by-section models.synthesize calls over the cached corpus."""
     selected = select_evidence(evidence, cfg.report.corpus_budget_tokens, source=cfg.source)
@@ -225,6 +227,9 @@ async def synthesize(
             budget_tokens=cfg.report.corpus_budget_tokens,
         )
     corpus = build_evidence_corpus(selected, citations)
+    notes = conflict_notes(conflicts or [], citations)
+    if notes:
+        corpus = f"{corpus}\n{notes}\n"
     corpus_hash = hash_corpus(corpus)
     sections: list[ReportSection] = []
     for brief in plan_sections(plan, cfg):
@@ -342,6 +347,7 @@ async def synthesize_local(
     provider: Provider,
     cfg: QuarryConfig,
     citations: CitationIndex,
+    conflicts: list[Conflict] | None = None,
 ) -> DraftReport:
     """Per-section synthesis for the local engine (and the assisted draft).
 
@@ -384,8 +390,10 @@ async def synthesize_local(
                 cfg.synth.section_budget_tokens,
                 cfg.source,
             )
+        notes = conflict_notes(conflicts or [], citations, brief.sub_question_ids)
         prompt = (
             corpus
+            + (f"\n{notes}\n" if notes else "")
             + "\n\n"
             + SECTION_PROMPT.format(
                 title=brief.title,

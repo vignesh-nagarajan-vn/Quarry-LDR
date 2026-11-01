@@ -103,12 +103,15 @@ class FakeLocalLLM:
     """Triage fake. complete_with_usage also serves local-mode GAP calls,
     which LocalProvider routes through the resident triage model."""
 
-    def __init__(self) -> None:
+    def __init__(self, scripted: dict[str, dict[str, Any]] | None = None) -> None:
         self.triage_prompts: list[str] = []
+        self.scripted = scripted or {}
 
     async def complete_typed(
-        self, prompt: str, schema: type[TriageVerdict], max_tokens: int = 512, max_retries: int = 2
-    ) -> TriageVerdict:
+        self, prompt: str, schema: Any, max_tokens: int = 512, max_retries: int = 2
+    ) -> Any:
+        if schema is not TriageVerdict:
+            return schema.model_validate(self.scripted.get(schema.__name__, {}))
         self.triage_prompts.append(prompt)
         relevant = "sand" in prompt.lower() or "vesterholm" in prompt.lower()
         return TriageVerdict(
@@ -327,6 +330,7 @@ async def test_single_pass_produces_cited_report(cfg: QuarryConfig) -> None:
             Stage.RERANK,
             Stage.TRIAGE,
             Stage.GAP,
+            Stage.CONFLICTS,
             Stage.SYNTHESIZE,
             Stage.VERIFY,
             Stage.RENDER,

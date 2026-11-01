@@ -39,11 +39,13 @@ from quarry_ldr.ingest.fetch import Fetcher
 from quarry_ldr.ingest.search import SearxClient
 from quarry_ldr.ledger import Ledger
 from quarry_ldr.logging import get_logger, setup_logging
+from quarry_ldr.pipeline.conflicts import Conflict, disagreement_markdown, find_conflicts
 from quarry_ldr.pipeline.gap import GapAnalysis, analyze_gaps
 from quarry_ldr.pipeline.plan import ResearchPlan, make_plan
 from quarry_ldr.pipeline.retrieve import rerank_candidates, retrieve_candidates
 from quarry_ldr.pipeline.synthesize import (
     DraftReport,
+    ReportSection,
     build_evidence_corpus,
     polish_draft,
     select_evidence,
@@ -484,6 +486,16 @@ class Orchestrator:
                 key=lambda t: (t.sub_question_id, -t.rerank_score, t.chunk.chunk_id),
             )
 
+            # ---- CONFLICTS (figures sources disagree on, every engine mode)
+            conflict_payload = await self._stage(
+                store,
+                run_id,
+                Stage.CONFLICTS,
+                0,
+                lambda: self._compute_conflicts(plan, evidence, llama_server, local_llm),
+            )
+            conflicts = [Conflict.model_validate(raw) for raw in conflict_payload["conflicts"]]
+
             # ---- SYNTHESIZE (section by section over the cached corpus)
             citations = CitationIndex()
             synth_payload = await self._stage(
@@ -492,7 +504,13 @@ class Orchestrator:
                 Stage.SYNTHESIZE,
                 0,
                 lambda: self._compute_synthesize(
-                    plan, evidence, reasoning_provider, citations, synth_server, polish_provider
+                    plan,
+                    evidence,
+                    reasoning_provider,
+                    citations,
+                    synth_server,
+                    polish_provider,
+                    conflicts,
                 ),
             )
             persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
@@ -557,6 +575,7 @@ class Orchestrator:
                         **totals,
                         "n_chunks_after_dedup": n_kept_total,
                         "n_chunks_evidence": n_evidence_chunks,
+                        "n_conflicts": len(conflicts),
                         "n_claims_checked": verify_summary.total_claims,
                         "n_claims_rewritten": verify_summary.rewritten,
                         "n_claims_dropped": verify_summary.dropped,
@@ -783,6 +802,23 @@ class Orchestrator:
         )
         return gap.model_dump(mode="json")
 
+    async def _compute_conflicts(
+        self,
+        plan: ResearchPlan,
+        evidence: list[TriagedChunk],
+        llama_server: LlamaServer | None,
+        local_llm: LocalLLM | None,
+    ) -> dict[str, Any]:
+        assert local_llm is not None
+        if llama_server is not None:
+            # A replayed TRIAGE never spawned the server; this stage needs it.
+            await llama_server.start()
+        selected = select_evidence(
+            evidence, self.cfg.report.corpus_budget_tokens, source=self.cfg.source
+        )
+        conflicts = await find_conflicts(plan, selected, local_llm, self.cfg)
+        return {"conflicts": [conflict.model_dump(mode="json") for conflict in conflicts]}
+
     async def _compute_verify(
         self,
         draft: DraftReport,
@@ -818,17 +854,29 @@ class Orchestrator:
         citations: CitationIndex,
         synth_server: LlamaServer | None = None,
         polish_provider: Provider | None = None,
+        conflicts: list[Conflict] | None = None,
     ) -> dict[str, Any]:
         if synth_server is not None:
             await synth_server.start()
         if self.cfg.engine.mode == "premium":
-            draft = await synthesize(plan, evidence, provider, self.cfg, citations)
+            draft = await synthesize(plan, evidence, provider, self.cfg, citations, conflicts)
         else:
-            draft = await synthesize_local(plan, evidence, provider, self.cfg, citations)
+            draft = await synthesize_local(plan, evidence, provider, self.cfg, citations, conflicts)
             if polish_provider is not None:
                 # Assisted mode: one guarded models.assisted pass over the
                 # assembled draft, before VERIFY judges the final prose.
                 draft = await polish_draft(draft, polish_provider, self.cfg)
+        disagreements = disagreement_markdown(conflicts or [], citations)
+        if disagreements:
+            # Rendered by code so no writer can omit it; VERIFY still judges it.
+            draft = draft.model_copy(
+                update={
+                    "sections": [
+                        *draft.sections,
+                        ReportSection(title="Where sources disagree", markdown=disagreements),
+                    ]
+                }
+            )
         logger.info("synthesize_done", n_sections=len(draft.sections), engine=self.cfg.engine.mode)
         return {"draft": draft.model_dump(mode="json"), "corpus_hash": draft.corpus_hash}
 

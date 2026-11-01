@@ -36,6 +36,7 @@ class RunManifest(BaseModel):
     n_chunks: int
     n_chunks_after_dedup: int
     n_chunks_evidence: int
+    n_conflicts: int = 0
     n_claims_checked: int = 0
     n_claims_rewritten: int = 0
     n_claims_dropped: int = 0

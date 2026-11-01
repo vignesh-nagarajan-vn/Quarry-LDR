@@ -64,6 +64,10 @@ class CitationIndex:
             raise CitationError(f"citation [{number}] does not resolve ({known} citations exist)")
         return citation
 
+    def number_for(self, chunk_id: str) -> int | None:
+        """The number already assigned to a chunk, if any."""
+        return self._number_by_chunk.get(chunk_id)
+
     def __len__(self) -> int:
         return len(self._by_number)
 
