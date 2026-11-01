@@ -29,7 +29,8 @@ flowchart TB
             DEDUP["DEDUP<br/>SimHash plus cosine"]
             RERANK["RERANK<br/>bge-reranker-v2-m3<br/>cross-encoder"]
             TRIAGE["TRIAGE<br/>Qwen3 4B via llama-server"]
-            VERIFY["VERIFY<br/>cross-encoder entailment,<br/>Qwen3 4B rewrites"]
+            CONFLICTS["CONFLICTS<br/>Qwen3 4B proposes,<br/>code accepts"]
+            VERIFY["VERIFY<br/>reranker floor, figure check,<br/>Qwen3 4B support check and rewrites"]
         end
         LANCE[("LanceDB<br/>vector index")]
         STATE[("SQLite run store<br/>every stage transition is a row,<br/>so runs resume")]
@@ -48,7 +49,8 @@ flowchart TB
     RERANK -->|"top 40"| TRIAGE
     TRIAGE -->|"roughly 60K tokens of evidence"| GAP
     GAP -->|"gaps: new queries, up to 3 passes"| SEARCH
-    GAP -->|"saturated"| SYNTH
+    GAP -->|"saturated or final pass"| CONFLICTS
+    CONFLICTS --> SYNTH
     SYNTH --> VERIFY
     VERIFY --> RENDER
     RENDER --> report
@@ -102,23 +104,42 @@ topic
               local: Qwen3 4B (already resident, zero model swaps)
               assisted: Haiku 4.5   premium: Sonnet 5
   |          |
-  |          +---> loop back to SEARCH (max iterations, default 3)
+  |          +---> loop back to SEARCH (max iterations, default 3);
+  |                code adds follow-ups when claims name nothing
+  |                GAP also runs on the final pass: its uncovered
+  |                sub-questions become "What we could not establish"
   v
-[SYNTHESIZE]  local/assisted: Qwen3 8B writes each section from a
-              per-section evidence slice with grammar-constrained
-              output; assisted adds one guarded Haiku polish pass.
+[CONFLICTS]   Local 4B, every engine mode. Proposes figure
+              disagreements; code accepts only real ones from
+              different sites.
+  |
+  v
+[SYNTHESIZE]  local/assisted: Qwen3 8B writes each planned section
+              from a per-section evidence slice with grammar-
+              constrained output; local adds one guarded edit per
+              section, assisted one guarded Haiku polish pass.
               premium: Opus 5 over one prompt-cached corpus trimmed
               to report.corpus_budget_tokens beforehand.
+              Then code cleanup (markers, leaked plan text, repeats,
+              wall paragraphs) and Key findings, written last from
+              the cleaned body by the same writer.
   |
   v
-[VERIFY]      Local GPU, every engine mode. The cross-encoder scores
-              every cited sentence against its cited chunks in one
-              batched pass; sentences under verify.floor get up to
-              verify.max_rewrites rewrite attempts on the 4B model,
-              then are dropped if still failing.
+[VERIFY]      Local GPU, every engine mode. A cited sentence stands
+              only if it clears verify.floor on the cross-encoder,
+              every figure in it appears in its cited chunks, and the
+              4B judges it supported over the whole chunk; otherwise
+              up to verify.max_rewrites rewrites must pass all three,
+              then it is dropped. Uncited factual sentences get a
+              supported marker from their section's sources or are
+              dropped; linking sentences and gap notes stay.
   |
   v
-[RENDER]      Markdown report with numbered citations resolving to
+[RENDER]      Key findings, body, Where sources disagree, What we
+              could not establish, Sources, References. Code labels
+              each key finding's confidence from its independent
+              sites and source tiers.
+              Markdown report with numbered citations resolving to
               URL plus chunk anchor, a cost ledger, and a run manifest;
               plus a branded Typst PDF with matplotlib run charts
               (report.pdf, fail-soft: the markdown never depends on it).
@@ -219,13 +240,19 @@ Defaults live in `config/default.yaml`; identical defaults are baked into the co
 | `synth.request_timeout_s` | 300.0 | Per-request ceiling; sized for a full-corpus section on a throttled card |
 | `verify.enabled` | true | Score every cited sentence against its cited chunks before render |
 | `verify.floor` | -8.0 | Cross-encoder logit floor, calibrated on fixtures (DECISIONS.md); raise for stricter reports, lower to keep more |
-| `verify.max_rewrites` | 2 | Rewrite attempts on the 4B before a failing sentence is dropped |
+| `verify.max_rewrites` | 2 | Rewrite attempts on the 4B before a failing sentence is dropped; a rewrite must pass the floor, the figure check, and the support check |
+| `source.max_site_share` | 0.2 | Most of the evidence budget one site may supply; relaxed to `1 / n_sites` when too few sites exist |
+| `source.rerank_site_limit` | 8 | Most of a sub-question's `rerank_top_k` one site may fill |
+| `source.tier_bonus` | primary 2.0, scholarly 2.0, established 0.5, general 0.0, low -3.0 | Added to reranker logits when ranking; the raw score stays on record |
+| `source.overrides` | `{}` | Domain to tier; beats every built-in rating rule |
 | `api.max_retries` | 5 | Backoff retries on 429/529 |
 | `api.retry_base_s` | 1.0 | Exponential backoff base with jitter |
 | `api.cache_ttl` | `1h` | Prompt cache TTL for the synthesis corpus |
 | `api.batch_poll_s` | 30.0 | Batch API poll interval |
 | `report.min_sections` / `max_sections` | 4 / 12 | Report shape bounds |
 | `report.corpus_budget_tokens` | 45000 | Synthesis evidence cap in heuristic tokens (~60K API tokens at the measured 1.32x ratio); round-robin across sub-questions by rerank score |
+| `report.target_words_min` / `target_words_max` | 3000 / 6000 | Whole-report length band, split evenly into per-section targets |
+| `report.max_paragraph_words` | 160 | Cleanup splits longer prose paragraphs at sentence boundaries |
 | `report.pdf` | true | Compile the branded Typst PDF beside the markdown; failures are fail-soft |
 
 ## API pricing the ledger uses

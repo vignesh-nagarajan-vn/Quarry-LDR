@@ -52,14 +52,15 @@ flowchart LR
     P --> Q["SEARCH + COMPRESS<br/>local GPU: embed, dedup,<br/>rerank, triage"]
     Q -->|"750K tokens<br/>down to 60K"| G{"GAP<br/>engine model"}
     G -->|"new queries"| Q
-    G -->|"saturated"| S["SYNTHESIZE<br/>engine model"]
-    S --> V["VERIFY<br/>local cross-encoder"]
+    G -->|"saturated"| C["CONFLICTS<br/>local 4B proposes,<br/>code accepts"]
+    C --> S["SYNTHESIZE<br/>engine model"]
+    S --> V["VERIFY<br/>local reranker, figure check,<br/>4B support check"]
     V --> R(["Cited report<br/>markdown + PDF"])
 ```
 
-A 15-stage checkpointed pipeline. The engine model behind **PLAN**, **GAP**, and **SYNTHESIZE** is **Qwen3-8B** on your own GPU by default, or Claude in the assisted and premium modes; either way SearXNG and a polite fetcher gather sources, and the local GPU embeds, deduplicates, reranks, and triages them down to a token-budgeted evidence corpus. The local models run as **Q4_K_M GGUF quantizations** (4-bit k-quant medium) via llama.cpp: the 8B writer at 16K context with flash attention and a q8_0-quantized KV cache, the 4B triage model at 8K context. The embedder (bge-m3) and the cross-encoder reranker (bge-reranker-v2-m3) run unquantized at fp16.
+A 16-stage checkpointed pipeline. The engine model behind **PLAN**, **GAP**, and **SYNTHESIZE** is **Qwen3-8B** on your own GPU by default, or Claude in the assisted and premium modes; either way SearXNG and a polite fetcher gather sources, and the local GPU embeds, deduplicates, reranks, and triages them down to a token-budgeted evidence corpus. The local models run as **Q4_K_M GGUF quantizations** (4-bit k-quant medium) via llama.cpp: the 8B writer at 16K context with flash attention and a q8_0-quantized KV cache, the 4B triage model at 8K context. The embedder (bge-m3) and the cross-encoder reranker (bge-reranker-v2-m3) run unquantized at fp16.
 
-In local mode the 8B writes each section from a **per-section evidence slice** with grammar-constrained output, and gap checks run on the already-resident 4B so the loop never pays a model swap; in premium mode Claude writes over one **prompt-cached corpus** exactly as v0 did. **VERIFY** then scores every cited sentence against its cited chunks and rewrites or drops what the evidence does not support. A **VRAM arbiter** with a hard 6.5 GB budget owns all GPU residency so four models share one 8 GB card safely. Diagram, arbiter rules, and every configuration key: [docs/Architecture.md](docs/Architecture.md).
+In local mode the 8B writes each section from a **per-section evidence slice** with grammar-constrained output, and gap checks run on the already-resident 4B so the loop never pays a model swap; in premium mode Claude writes over one **prompt-cached corpus** exactly as v0 did. **VERIFY** then holds every cited sentence to three local gates (reranker floor, every figure present in its cited text, a 4B support check) and rewrites or drops what fails; an uncited factual sentence gets a supporting citation or is removed. A **VRAM arbiter** with a hard 6.5 GB budget owns all GPU residency so four models share one 8 GB card safely. Diagram, arbiter rules, and every configuration key: [docs/Architecture.md](docs/Architecture.md).
 
 ## Run It
 
@@ -83,7 +84,7 @@ uv run quarry research "your topic" --engine assisted   # Haiku gap audits + pol
 uv run quarry research "your topic" --engine premium    # Claude plans, audits, writes; $1.36 to $2.88 measured
 ```
 
-(or set it permanently with `engine.mode` in a config file). The report and its PDF land in `data/reports/`, with a cost ledger and a run manifest appended. `quarry resume <run_id>` continues an interrupted run; `quarry inspect <run_id>` dumps stage-by-stage state. `make smoke-local` runs a $0 end-to-end rehearsal first if you want proof before a real topic, and `make smoke` does the same on the configured engine under a $2.00 cap. Every flag, engine, config knob, and operational caution, in one place: [docs/RunGuide.md](docs/RunGuide.md).
+(or set it permanently with `engine.mode` in a config file). The report and its PDF land in `data/reports/`, with a cost ledger and a run manifest appended. `quarry resume <run_id>` continues an interrupted run; `quarry inspect <run_id>` dumps stage-by-stage state; `quarry score <run_id>` checks a finished report against the thresholds in `evals/thresholds.json`. `make smoke-local` runs a $0 end-to-end rehearsal first if you want proof before a real topic, and `make smoke` does the same on the configured engine under a $2.00 cap. Every flag, engine, config knob, and operational caution, in one place: [docs/RunGuide.md](docs/RunGuide.md).
 
 What $0.00 buys, verbatim from [a real local-engine run](pdf-reports/):
 

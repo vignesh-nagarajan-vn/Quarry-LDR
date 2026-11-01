@@ -59,9 +59,11 @@ That is the whole interface. The topic string becomes the report title verbatim,
 
 The report and its PDF land in `data/reports/` as `report-<run_id>.md` and `report-<run_id>.pdf`, with the cost ledger and run manifest appended to the markdown and a charts-and-facts appendix inside the PDF. Every run is checkpointed to SQLite as it goes.
 
+Every report reads in the same order: Key findings (a bottom line plus 5 to 8 cited bullets, each with a code-assigned confidence label), the body sections, Where sources disagree (only when code accepted a conflict), What we could not establish, Sources (tier mix and any concentration warning), and References. Length targets 3,000 to 6,000 words on every engine.
+
 ## The Three Engines
 
-`engine.mode` decides who serves PLAN, GAP, and SYNTHESIZE. Everything else, including the VERIFY entailment gate, is identical across engines and always local.
+`engine.mode` decides who serves PLAN, GAP, and SYNTHESIZE. Everything else, including the CONFLICTS stage and every VERIFY gate, is identical across engines and always local. Key findings go through the engine's writer. The costs and times below are v1.0.1 measurements; the report-quality changes have not been re-measured live yet.
 
 ### `local` (the default)
 
@@ -69,7 +71,7 @@ The report and its PDF land in `data/reports/` as `report-<run_id>.md` and `repo
 uv run quarry research "your topic"
 ```
 
-Zero API calls, no key needed, $0.00 enforced by the ledger (local calls are metered with real token counts at zero price under `local/` model ids). The Qwen3 8B writes the plan and every report section from per-section evidence slices with grammar-constrained output; the 4B handles evidence triage and gap checks while already resident, so the loop never pays a model swap. Measured on the design-target laptop: a full three-iteration report takes roughly an hour, most of it the per-chunk triage passes; the 8B writes all sections in two to three minutes at 35.3 tokens per second.
+Zero API calls, no key needed, $0.00 enforced by the ledger (local calls are metered with real token counts at zero price under `local/` model ids). The Qwen3 8B writes the plan and every report section from per-section evidence slices with grammar-constrained output; the 4B handles evidence triage and gap checks while already resident, so the loop never pays a model swap. Measured on the design-target laptop: a full three-iteration report takes roughly an hour, most of it the per-chunk triage passes; the 8B writes all sections in two to three minutes at 35.3 tokens per second. Local reports now also take one guarded 8B edit per section, a findings generation, and a 4B support check per sentence, all at $0.
 
 ### `assisted`
 
@@ -103,8 +105,11 @@ Every key, its default, and what moving it does: the configuration reference in 
 | `run.max_iterations` | 3 | Depth vs time: each loop adds search, fetch, and a triage pass |
 | `run.cost_cap_usd` | 5.0 | Hard ceiling for the paid engines |
 | `report.max_sections` | 12 | Report breadth |
+| `report.target_words_min`, `report.target_words_max` | 3000, 6000 | The whole-report length band, split evenly into per-section targets |
 | `report.pdf` | true | Disable the PDF entirely if you only want markdown |
-| `verify.floor` | -8.0 | Raise toward 0 for stricter reports, lower to keep more borderline sentences |
+| `source.max_site_share` | 0.2 | Most of the evidence budget one site may supply; relaxed only when too few sites exist |
+| `source.overrides` | `{}` | Pin a domain to a source tier when the built-in rating gets it wrong |
+| `verify.floor` | -8.0 | The reranker gate only: raise toward 0 for stricter reports, lower to keep more borderline sentences. The figure and support checks still apply |
 | `gpu.vram_budget_mb` | 6656 | Set to ~80 percent of your card's VRAM on non-default hardware |
 | `synth.request_timeout_s` | 300 | Raise if a heavily throttled card still times out writing sections |
 
@@ -114,6 +119,8 @@ Every key, its default, and what moving it does: the configuration reference in 
 uv run quarry runs                    # list known runs, newest first
 uv run quarry inspect <run_id>        # stage-by-stage state as JSON
 uv run quarry resume <run_id>         # continue from the last completed stage
+uv run quarry score <run_id>          # metrics against evals/thresholds.json; exit 1 on a miss
+uv run quarry score <run_id> --against <old_id>   # the same, with a before column
 ```
 
 Every stage transition is a SQLite row, so an interrupted run (crash, power loss, cost cap) resumes by replaying completed stages from their persisted payloads and re-executing only unfinished work. Resume uses the current process config including `engine.mode`: a run resumed under a different engine continues under the new engine from that point, by design.
@@ -135,7 +142,7 @@ uv run python scripts/smoke.py --engine assisted --max-cost 0.50
 
 ## Operational Cautions, Learned Live
 
-- **Space out repeated runs.** Upstream search engines have suspended an IP after too many queries in a short window; `search.max_concurrency` bounds the per-run burst, but volume across runs adds up. Probe with one query before spending on a paid run.
+- **Space out repeated runs.** Upstream search engines have suspended an IP after too many queries in a short window; `search.max_concurrency` bounds the per-run burst, but volume across runs adds up. Probe with three spaced queries, all required healthy, before spending on a paid run; a single passing probe has been observed lying.
 - **Keep the machine awake** during a run. Laptops that sleep mid-run resume fine (that is what checkpoints are for), but on some Windows builds Docker needs a reboot after sleep before search works again.
 - **Thermal throttling is real.** Sustained runs generate well below burst benchmarks; if section writing times out on your card, raise `synth.request_timeout_s` and resume the run.
 - **Different GPU?** Set `gpu.vram_budget_mb` to about 80 percent of VRAM and run `scripts/bench_vram.py` to measure real footprints; the arbiter corrects declared values against measurements, within a plausibility guard.

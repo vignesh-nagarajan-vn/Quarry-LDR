@@ -32,17 +32,24 @@ The v0 hybrid design is preserved on branch `archive/v0-hybrid-api` (released as
 | `src/quarry_ldr/ledger.py` | Date-aware pricing, cost from API `usage` blocks only |
 | `src/quarry_ldr/gpu/arbiter.py` | All GPU residency: hard budget, LRU eviction, async lock |
 | `src/quarry_ldr/gpu/` | embedder, reranker, llama-server lifecycle (triage + synth specs) + local client |
-| `src/quarry_ldr/ingest/` | search (SearXNG), fetch (robots, rate limit, cache), extract, chunk, dedup |
+| `src/quarry_ldr/ingest/` | search (SearXNG), fetch (robots, rate limit, cache), extract (HTML and PDF), chunk, dedup |
+| `src/quarry_ldr/ingest/sources.py` | Deterministic source tiers (`rate_url`) and the site key every per-site cap uses |
 | `src/quarry_ldr/index/` | LanceDB store with versioned schema |
 | `src/quarry_ldr/pipeline/` | Stage functions + orchestrator state machine (`run.py`) |
-| `src/quarry_ldr/pipeline/verify.py` | VERIFY: cross-encoder entailment gate + 4B rewrite-or-drop |
+| `src/quarry_ldr/pipeline/conflicts.py` | CONFLICTS: 4B proposes figure disagreements, code accepts only real ones |
+| `src/quarry_ldr/pipeline/findings.py` | Key findings (written last, code-labeled confidence) and the gaps section from the final GAP |
+| `src/quarry_ldr/pipeline/verify.py` | VERIFY: reranker floor, figure check, 4B support check, rewrite-or-drop, attach-or-drop for uncited facts |
 | `src/quarry_ldr/providers/base.py` | `Provider` protocol both backends satisfy; cache-prefix rules |
 | `src/quarry_ldr/providers/anthropic_client.py` | The API backend: retries, caching, batch, ledger hooks |
 | `src/quarry_ldr/providers/local_client.py` | The llama-server backend: same protocol, $0 ledger rows |
 | `src/quarry_ldr/report/` | Render + citations; every claim resolves to URL + chunk anchor |
+| `src/quarry_ldr/report/claims.py` | Shared reading of prose: sentences, factual vs. gap notes, figures, names |
+| `src/quarry_ldr/report/cleanup.py` | Deterministic draft cleanup: markers, leaked plan text, repeats, wall paragraphs |
+| `src/quarry_ldr/report/scorecard.py` | `quarry score`: report metrics against `evals/thresholds.json` |
 | `src/quarry_ldr/report/pdf.py`, `charts.py` | Branded Typst PDF + matplotlib run charts, fail-soft |
-| `src/quarry_ldr/cli.py` | Typer CLI: research, resume, inspect, runs, verify, searxng |
+| `src/quarry_ldr/cli.py` | Typer CLI: research, resume, inspect, runs, verify, score, searxng |
 | `src/quarry_ldr/preflight.py` | Shared setup checks (models, Docker, API key, GPU); `verify` prints them, research/resume gate on them |
+| `evals/` | Benchmark topics and versioned scorecard thresholds; threshold changes get their own commit |
 | `scripts/` | bootstrap, model download, GPU verify, VRAM bench, fixtures, audit, smoke |
 | `config/default.yaml` | Every default, mirrored byte-for-meaning in config.py (a drift test enforces it) |
 | `docker/` | SearXNG compose file and settings (JSON format enabled) |
