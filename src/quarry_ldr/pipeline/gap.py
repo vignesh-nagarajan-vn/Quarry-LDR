@@ -15,6 +15,7 @@ from quarry_ldr.ingest.chunk import HeuristicTokenCounter
 from quarry_ldr.pipeline.plan import ResearchPlan
 from quarry_ldr.pipeline.triage import TriagedChunk
 from quarry_ldr.providers.base import Provider
+from quarry_ldr.report.claims import extract_figures, named_entities
 
 
 class CoverageAssessment(BaseModel):
@@ -36,7 +37,9 @@ class GapAnalysis(BaseModel):
 
 GAP_SYSTEM = (
     "You audit research coverage. For each sub-question, judge whether the "
-    "collected claims satisfy its success criterion. Emit new, DIFFERENT web "
+    "collected claims satisfy its success criterion and pin down its named "
+    "specifics. Generalities with no names, dates, or figures do not count as "
+    "covered. Emit new, DIFFERENT web "
     "search queries only for uncovered sub-questions (never repeat earlier "
     "angles). Declare saturation when further searching is unlikely to add "
     'evidence that changes the report. Reply with JSON only: {"saturated": '
@@ -47,6 +50,41 @@ GAP_SYSTEM = (
 _MAX_CLAIMS_PER_SQ = 40
 _DIGEST_SHRINK_STEPS = (40, 20, 10, 5, 3, 1)
 _LAST_RESORT_CLAIM_CHARS = 160
+# A sub-question with fewer specifics than this gets code-issued follow-ups.
+_MIN_NAMES = 2
+_MIN_FIGURES = 1
+_MAX_FOLLOWUPS = 4
+
+
+def specifics_found(claims: list[str]) -> tuple[int, int]:
+    """Distinct names and figures across claims."""
+    joined = " ".join(claims)
+    return len(named_entities(joined)), len(extract_figures(joined))
+
+
+def specificity_followups(
+    plan: ResearchPlan, evidence: list[TriagedChunk], asked: set[str]
+) -> list[str]:
+    """Queries for sub-questions whose evidence stays vague, decided by code.
+
+    A model can declare saturation over claims that name nobody; this check
+    keeps searching anyway, bounded per pass, and never repeats a query.
+    """
+    claims_by_sq: dict[str, list[str]] = {}
+    for item in evidence:
+        claims_by_sq.setdefault(item.sub_question_id, []).append(item.verdict.claim)
+    followups: list[str] = []
+    for sub_question in plan.sub_questions:
+        names, figures = specifics_found(claims_by_sq.get(sub_question.id, []))
+        if names >= _MIN_NAMES and figures >= _MIN_FIGURES:
+            continue
+        focus = sub_question.must_pin_down or "named examples and measured figures"
+        query = f"{plan.topic} {focus}"
+        if query not in asked and query not in followups:
+            followups.append(query)
+        if len(followups) == _MAX_FOLLOWUPS:
+            break
+    return followups
 
 
 def coverage_digest(
@@ -66,6 +104,10 @@ def coverage_digest(
             claims = [claim[:truncate_chars] for claim in claims]
         lines.append(f"{sub_question.id}: {sub_question.question}")
         lines.append(f"  success criterion: {sub_question.success_criterion}")
+        if sub_question.must_pin_down:
+            lines.append(f"  must pin down: {sub_question.must_pin_down}")
+        names, figures = specifics_found(claims_by_sq.get(sub_question.id, []))
+        lines.append(f"  specifics found: {names} names, {figures} figures")
         if claims:
             lines.extend(f"  claim: {claim}" for claim in claims)
         else:
@@ -106,8 +148,7 @@ async def analyze_gaps(
 
     ``model`` overrides ``cfg.models.gap`` (the orchestrator passes
     models.assisted in assisted mode). ``digest_budget_tokens`` bounds the
-    digest for context-limited local backends; None keeps the API path's
-    digest byte-identical to v0. Stage code stays engine-agnostic.
+    digest for context-limited local backends. Stage code stays engine-agnostic.
     """
     digest = (
         budgeted_digest(plan, evidence, digest_budget_tokens)

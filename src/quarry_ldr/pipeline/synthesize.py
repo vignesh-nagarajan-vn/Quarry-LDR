@@ -30,8 +30,14 @@ from quarry_ldr.pipeline.plan import ResearchPlan
 from quarry_ldr.pipeline.triage import TriagedChunk
 from quarry_ldr.providers.base import Provider, hash_corpus
 from quarry_ldr.report.citations import CITATION_MARKER, CitationError, CitationIndex
+from quarry_ldr.report.claims import count_specifics
 
 logger = get_logger(component="synthesize")
+
+# Enough to settle near-ties toward concrete claims, never enough to outrank
+# a real relevance difference (reranker logits span about 24 points).
+_SPECIFICS_BONUS = 0.05
+_SPECIFICS_BONUS_CAP = 6
 
 
 class SectionBrief(BaseModel):
@@ -89,7 +95,10 @@ def select_evidence(
     def rank(item: TriagedChunk) -> float:
         if source is None:
             return item.rerank_score
-        return adjusted_score(item.chunk.url, item.rerank_score, source)
+        concrete = min(count_specifics(item.verdict.claim), _SPECIFICS_BONUS_CAP)
+        return adjusted_score(item.chunk.url, item.rerank_score, source) + (
+            concrete * _SPECIFICS_BONUS
+        )
 
     ordered = sorted(evidence, key=lambda t: (t.sub_question_id, -rank(t), t.chunk.chunk_id))
     grouped: dict[str, deque[TriagedChunk]] = {}
@@ -202,6 +211,9 @@ Rules:
   marker [n] matching a corpus entry. No uncited claims.
 - Markdown body text only: no top-level heading (it is added by the renderer),
   subsections with ### are fine.
+- Be concrete. Name the companies, projects, places, and people the evidence
+  names, and give its dates and figures. Never write "some companies" or "recent
+  studies" when the evidence says which.
 - If evidence conflicts, say so and cite both sides.
 - If the corpus lacks evidence for something, say the evidence is missing
   rather than inventing it.

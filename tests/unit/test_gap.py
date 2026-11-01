@@ -10,8 +10,14 @@ import respx
 from anthropic import AsyncAnthropic
 
 from quarry_ldr.config import QuarryConfig
+from quarry_ldr.ingest.chunk import Chunk
 from quarry_ldr.ledger import Ledger
-from quarry_ldr.pipeline.gap import GAP_SYSTEM, analyze_gaps, coverage_digest
+from quarry_ldr.pipeline.gap import (
+    GAP_SYSTEM,
+    analyze_gaps,
+    coverage_digest,
+    specificity_followups,
+)
 
 # Reuse the local factories from the synthesize tests' pattern.
 from quarry_ldr.pipeline.plan import ResearchPlan, SubQuestion
@@ -208,3 +214,80 @@ async def test_analyze_gaps_digest_budget_bounds_the_prompt(cfg: QuarryConfig) -
     assert captured["max_tokens"] == 1200
     # Digest budget plus the small topic/iteration header.
     assert HeuristicTokenCounter().count(captured["prompt"]) <= 400 + 60
+
+
+def _vague_item(sq: str, claim: str) -> TriagedChunk:
+    return TriagedChunk(
+        sub_question_id=sq,
+        chunk=Chunk(
+            chunk_id=f"{sq}-{len(claim)}",
+            url="https://x.example/a",
+            text=claim,
+            token_count=5,
+            position=0,
+            start_char=0,
+            end_char=len(claim),
+        ),
+        verdict=TriageVerdict(relevant=True, claim=claim, evidence_span="s", confidence=0.9),
+        rerank_score=1.0,
+    )
+
+
+def _specifics_plan(n: int = 8) -> ResearchPlan:
+    return ResearchPlan(
+        topic="iron-air batteries",
+        sub_questions=[
+            SubQuestion(
+                id=f"sq{i:02d}",
+                question=f"Question {i}?",
+                queries=["a", "b"],
+                success_criterion="c",
+                must_pin_down="named plants" if i == 1 else "",
+            )
+            for i in range(1, n + 1)
+        ],
+    )
+
+
+CONCRETE = "Form Energy will build a 1.5 MW pilot with Xcel Energy."
+
+
+def test_digest_reports_specifics_and_what_to_pin_down() -> None:
+    plan = _specifics_plan()
+    digest = coverage_digest(plan, [_vague_item("sq01", CONCRETE)])
+    assert "must pin down: named plants" in digest
+    assert "specifics found: 2 names, 1 figures" in digest
+
+
+def test_followups_target_vague_sub_questions_and_are_bounded() -> None:
+    plan = _specifics_plan()
+    evidence = [_vague_item("sq01", "it is generally quite good overall")]
+    followups = specificity_followups(plan, evidence, set())
+    assert followups[0] == "iron-air batteries named plants"
+    assert len(followups) == 2  # the generic query is shared, so it appears once
+
+
+def test_followups_skip_concrete_sub_questions_and_asked_queries() -> None:
+    plan = _specifics_plan(8)
+    evidence = [_vague_item(sq.id, CONCRETE) for sq in plan.sub_questions]
+    assert specificity_followups(plan, evidence, set()) == []
+    vague = [_vague_item("sq01", "quite good overall")] + evidence[1:]
+    asked = {"iron-air batteries named plants"}
+    assert specificity_followups(plan, vague, asked) == []
+
+
+def test_followups_never_exceed_the_per_pass_bound() -> None:
+    plan = ResearchPlan(
+        topic="t",
+        sub_questions=[
+            SubQuestion(
+                id=f"sq{i:02d}",
+                question=f"Q{i}?",
+                queries=["a", "b"],
+                success_criterion="c",
+                must_pin_down=f"focus {i}",
+            )
+            for i in range(1, 11)
+        ],
+    )
+    assert len(specificity_followups(plan, [], set())) == 4

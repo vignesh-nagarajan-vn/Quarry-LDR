@@ -40,7 +40,7 @@ from quarry_ldr.ingest.search import SearxClient
 from quarry_ldr.ledger import Ledger
 from quarry_ldr.logging import get_logger, setup_logging
 from quarry_ldr.pipeline.conflicts import Conflict, disagreement_markdown, find_conflicts
-from quarry_ldr.pipeline.gap import GapAnalysis, analyze_gaps
+from quarry_ldr.pipeline.gap import GapAnalysis, analyze_gaps, specificity_followups
 from quarry_ldr.pipeline.plan import ResearchPlan, make_plan
 from quarry_ldr.pipeline.retrieve import rerank_candidates, retrieve_candidates
 from quarry_ldr.pipeline.synthesize import (
@@ -289,6 +289,7 @@ class Orchestrator:
             queries = plan.all_queries()
             evidence_by_key: dict[tuple[str, str], TriagedChunk] = {}
             judged: set[tuple[str, str]] = set()
+            asked: set[str] = set()
             totals = {"n_queries": 0, "n_urls_fetched": 0, "n_docs_extracted": 0, "n_chunks": 0}
             n_sources = 0
             n_kept_total = 0
@@ -472,12 +473,17 @@ class Orchestrator:
                 )
                 persisted = await self._persist_new_ledger_entries(store, run_id, ledger, persisted)
                 gap = GapAnalysis.model_validate(gap_payload)
-                if gap.saturated or not gap.new_queries:
+                asked.update(q)
+                # Code keeps searching when evidence stays vague, even if the
+                # model calls it saturated; run.max_iterations still bounds it.
+                followups = specificity_followups(plan, list(evidence_by_key.values()), asked)
+                new_queries = [] if gap.saturated else gap.new_queries
+                if not new_queries and not followups:
                     logger.info(
                         "loop_saturated", iterations=iteration + 1, rationale=gap.rationale[:200]
                     )
                     break
-                queries = gap.new_queries
+                queries = [*new_queries, *(f for f in followups if f not in new_queries)]
                 iteration += 1
                 logger.info("loop_next_iteration", iteration=iteration, n_queries=len(queries))
 

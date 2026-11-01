@@ -87,6 +87,31 @@ async def test_make_plan_parses_fixture(cfg: QuarryConfig, fixtures_dir: Path) -
     assert len(plan.all_queries()) == 18
 
 
+def test_old_plans_without_must_pin_down_still_load() -> None:
+    raw = make_plan_obj().model_dump(mode="json")
+    for sub_question in raw["sub_questions"]:
+        del sub_question["must_pin_down"]
+    assert ResearchPlan.model_validate(raw).sub_questions[0].must_pin_down == ""
+
+
+def test_selection_prefers_concrete_claims_on_a_near_tie() -> None:
+    def item(position: int, claim: str) -> TriagedChunk:
+        base = make_evidence(1)[0]
+        return base.model_copy(
+            update={
+                "chunk": make_chunk("x", position=position),
+                "verdict": base.verdict.model_copy(update={"claim": claim}),
+                "rerank_score": 5.0,
+            }
+        )
+
+    vague = item(1, "it is quite good")
+    concrete = item(2, "Form Energy built a 1.5 MW pilot in Minnesota")
+    budget = HeuristicTokenCounter().count(_corpus_entry(concrete, 0))
+    kept = select_evidence([vague, concrete], budget, source=SourceSettings(max_site_share=1.0))
+    assert [k.verdict.claim for k in kept] == [concrete.verdict.claim]
+
+
 def test_plan_sections_shape_and_bounds(cfg: QuarryConfig) -> None:
     briefs = plan_sections(make_plan_obj(8), cfg)
     assert briefs[0].title == "Overview"
