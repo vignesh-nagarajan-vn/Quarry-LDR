@@ -10,6 +10,7 @@ from quarry_ldr.ingest.chunk import Chunk
 from quarry_ldr.pipeline.conflicts import (
     Conflict,
     ConflictSide,
+    cite_conflict_sides,
     comparable_claims,
     conflict_notes,
     disagreement_markdown,
@@ -53,9 +54,12 @@ def _plan() -> ResearchPlan:
 
 
 class FakeLLM:
-    def __init__(self, conflicts: list[dict[str, Any]] | None = None, fail: bool = False) -> None:
+    def __init__(
+        self, conflicts: list[dict[str, Any]] | None = None, fail: bool = False, same: bool = False
+    ) -> None:
         self.conflicts = conflicts or []
         self.fail = fail
+        self.same = same
         self.calls = 0
 
     async def complete_typed(
@@ -64,7 +68,7 @@ class FakeLLM:
         self.calls += 1
         if self.fail:
             raise ValueError("malformed")
-        return schema.model_validate({"conflicts": self.conflicts})
+        return schema.model_validate({"conflicts": self.conflicts, "same": self.same})
 
 
 GROWTH_A = "The market will grow at a CAGR of 46.25% through 2035."
@@ -164,7 +168,7 @@ async def test_no_figures_means_no_model_call(cfg: QuarryConfig) -> None:
 async def test_malformed_model_reply_finds_nothing_without_crashing(cfg: QuarryConfig) -> None:
     llm = FakeLLM(fail=True)
     assert await find_conflicts(_plan(), _growth_evidence(), cast(LocalLLM, llm), cfg) == []
-    assert llm.calls == 1
+    assert llm.calls == 2  # the coded pair's confirmation, then the listing
 
 
 async def test_duplicate_conflict_across_sub_questions_counts_once(cfg: QuarryConfig) -> None:
@@ -218,3 +222,108 @@ def test_unnumbered_chunks_are_left_out() -> None:
     conflict, _ = _numbered()
     assert disagreement_markdown([conflict], CitationIndex()) == ""
     assert conflict_notes([conflict], CitationIndex()) == ""
+
+
+async def test_a_bound_does_not_disagree_with_a_value_inside_it(cfg: QuarryConfig) -> None:
+    evidence = [
+        _evidence(1, "a.example", "Round-trip efficiency of approximately 40% is typical."),
+        _evidence(2, "b.example", "Conventional cells have an efficiency of less than 50 percent."),
+    ]
+    llm = FakeLLM(
+        [_proposal(value_a="approximately 40%", value_b="less than 50 percent")], same=True
+    )
+    assert await find_conflicts(_plan(), evidence, cast(LocalLLM, llm), cfg) == []
+
+
+async def test_a_goal_does_not_contradict_a_measured_figure(cfg: QuarryConfig) -> None:
+    evidence = [
+        _evidence(1, "a.example", "Cells reach an energy density of 75 Wh/kg."),
+        _evidence(2, "b.example", "A new cell being developed has an energy density of 250 Wh/kg."),
+    ]
+    llm = FakeLLM([_proposal(value_a="75 Wh/kg", value_b="250 Wh/kg")], same=True)
+    assert await find_conflicts(_plan(), evidence, cast(LocalLLM, llm), cfg) == []
+
+
+def _efficiency_evidence() -> list[TriagedChunk]:
+    return [
+        _evidence(1, "a.example", "These cells have a round-trip efficiency of about 40%.", "sq01"),
+        _evidence(2, "b.example", "These cells have a round-trip efficiency of 50-60%.", "sq05"),
+    ]
+
+
+async def test_code_pairs_a_measure_across_sub_questions(cfg: QuarryConfig) -> None:
+    llm = FakeLLM(same=True)
+    conflicts = await find_conflicts(_plan(), _efficiency_evidence(), cast(LocalLLM, llm), cfg)
+    assert len(conflicts) == 1
+    assert conflicts[0].measure == "round-trip efficiency"
+    assert (conflicts[0].a.value, conflicts[0].b.value) == ("about 40%", "50-60%")
+
+
+async def test_a_range_written_with_two_units_is_read_whole(cfg: QuarryConfig) -> None:
+    evidence = [
+        _evidence(1, "a.example", "These cells have a round-trip efficiency of 50-60%."),
+        _evidence(2, "b.example", "These cells have a round-trip efficiency of 40% to 50%."),
+    ]
+    llm = FakeLLM(same=True)
+    assert await find_conflicts(_plan(), evidence, cast(LocalLLM, llm), cfg) == []
+
+
+async def test_code_pairs_figures_with_word_units(cfg: QuarryConfig) -> None:
+    evidence = [
+        _evidence(1, "a.example", "These cells have a cycle life of 2000 cycles.", "sq01"),
+        _evidence(2, "b.example", "These cells have a cycle life of 10,000 cycles.", "sq02"),
+        _evidence(3, "c.example", "These cells have an efficiency of 40 percent.", "sq03"),
+        _evidence(4, "d.example", "These cells have an efficiency of 60 percent.", "sq04"),
+    ]
+    llm = FakeLLM(same=True)
+    conflicts = await find_conflicts(_plan(), evidence, cast(LocalLLM, llm), cfg)
+    assert {(c.measure, c.a.value, c.b.value) for c in conflicts} == {
+        ("cycle life", "2000 cycles", "10,000 cycles"),
+        ("efficiency", "40 percent", "60 percent"),
+    }
+
+
+async def test_a_coded_pair_needs_the_model_to_confirm_it(cfg: QuarryConfig) -> None:
+    llm = FakeLLM(same=False)
+    assert await find_conflicts(_plan(), _efficiency_evidence(), cast(LocalLLM, llm), cfg) == []
+
+
+async def test_a_malformed_confirmation_keeps_no_conflict(cfg: QuarryConfig) -> None:
+    llm = FakeLLM(fail=True)
+    assert await find_conflicts(_plan(), _efficiency_evidence(), cast(LocalLLM, llm), cfg) == []
+
+
+async def test_coded_pairs_stay_within_the_per_measure_cap(cfg: QuarryConfig) -> None:
+    evidence = [
+        _evidence(n, f"s{n}.example", f"Cells have a round-trip efficiency of {n * 20}%.")
+        for n in range(1, 5)
+    ]
+    llm = FakeLLM(same=True)
+    conflicts = await find_conflicts(_plan(), evidence, cast(LocalLLM, llm), cfg)
+    assert len(conflicts) == 2
+
+
+async def test_two_sites_are_needed_for_a_coded_pair(cfg: QuarryConfig) -> None:
+    evidence = [
+        _evidence(1, "a.example", "Cells have a round-trip efficiency of 40%."),
+        _evidence(2, "a.example", "Cells have a round-trip efficiency of 60%."),
+    ]
+    llm = FakeLLM(same=True)
+    assert await find_conflicts(_plan(), evidence, cast(LocalLLM, llm), cfg) == []
+
+
+def test_sides_outside_the_corpus_are_numbered_after_it() -> None:
+    evidence = _efficiency_evidence()
+    citations = CitationIndex()
+    citations.add(evidence[0].chunk)
+    conflict = Conflict(
+        sub_question_id="sq01",
+        measure="round-trip efficiency",
+        a=ConflictSide(chunk_id="c1", claim="a", value="about 40%"),
+        b=ConflictSide(chunk_id="c2", claim="b", value="50-60%"),
+    )
+    cite_conflict_sides([conflict], evidence, citations)
+    assert citations.number_for("c1") == 1
+    assert citations.number_for("c2") == 2
+    cite_conflict_sides([conflict], evidence, citations)
+    assert len(citations) == 2

@@ -51,6 +51,11 @@ def test_required_section_names_are_not_cut_off_titles() -> None:
     assert card.cut_off_titles == 1  # only the heading that really stops mid-phrase
 
 
+def test_the_disagreement_section_is_not_a_cut_off_title() -> None:
+    card = score_report("# T\n\n## Where sources disagree\n\n- **Cost:** A [1], B [2].")
+    assert card.cut_off_titles == 0
+
+
 def test_score_report_measures_the_report() -> None:
     card = score_report(REPORT)
     assert card.sections == 3

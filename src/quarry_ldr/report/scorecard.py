@@ -26,6 +26,8 @@ from quarry_ldr.report.claims import (
 )
 
 REQUIRED_SECTIONS = ("Key findings", "What we could not establish", "Sources")
+# Named by code, and only present when sources disagree, so never required.
+_DISAGREEMENT_SECTION = "Where sources disagree"
 _NON_PROSE_SECTIONS = frozenset({"Sources"})
 _QUESTION_START = re.compile(
     r"^(what|how|why|which|when|who|where|is|are|do|does|can|should|will)\b", re.IGNORECASE
@@ -141,6 +143,7 @@ def score_report(markdown: str, overrides: dict[str, str] | None = None) -> Scor
             1
             for t in titles
             if t not in REQUIRED_SECTIONS
+            and t != _DISAGREEMENT_SECTION
             and (_DANGLING_END.search(t) or (_QUESTION_START.match(t) and not t.endswith("?")))
         ),
         question_titles=sum(1 for t in titles if t.endswith("?")),

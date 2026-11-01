@@ -37,9 +37,15 @@ from quarry_ldr.ingest.dedup import dedup_chunks
 from quarry_ldr.ingest.extract import extract_document
 from quarry_ldr.ingest.fetch import Fetcher
 from quarry_ldr.ingest.search import SearxClient
+from quarry_ldr.ingest.sources import SourceTier, rate_url
 from quarry_ldr.ledger import Ledger
 from quarry_ldr.logging import get_logger, setup_logging
-from quarry_ldr.pipeline.conflicts import Conflict, disagreement_markdown, find_conflicts
+from quarry_ldr.pipeline.conflicts import (
+    Conflict,
+    cite_conflict_sides,
+    disagreement_markdown,
+    find_conflicts,
+)
 from quarry_ldr.pipeline.findings import (
     KEY_FINDINGS_TITLE,
     gaps_section,
@@ -546,6 +552,7 @@ class Orchestrator:
                     ),
                     citations,
                 )
+                cite_conflict_sides(conflicts, evidence, citations)
 
             # ---- VERIFY (claim-vs-cited-chunk entailment, every engine mode)
             verify_summary = VerificationSummary()
@@ -837,10 +844,14 @@ class Orchestrator:
         if llama_server is not None:
             # A replayed TRIAGE never spawned the server; this stage needs it.
             await llama_server.start()
-        selected = select_evidence(
-            evidence, self.cfg.report.corpus_budget_tokens, source=self.cfg.source
-        )
-        conflicts = await find_conflicts(plan, selected, local_llm, self.cfg)
+        # All evidence, not only what fits the writers' budget: a disagreement can
+        # sit in a chunk the budget left out. Low-tier pages cannot start one.
+        comparable = [
+            item
+            for item in evidence
+            if rate_url(item.chunk.url, self.cfg.source.overrides) != SourceTier.LOW
+        ]
+        conflicts = await find_conflicts(plan, comparable, local_llm, self.cfg)
         return {"conflicts": [conflict.model_dump(mode="json") for conflict in conflicts]}
 
     async def _compute_verify(
@@ -915,6 +926,7 @@ class Orchestrator:
         )
         findings_text, _, _ = fix_markers(findings.markdown, citations)
         sections = [findings.model_copy(update={"markdown": findings_text}), *draft.sections]
+        cite_conflict_sides(conflicts or [], evidence, citations)
         disagreements = disagreement_markdown(conflicts or [], citations)
         if disagreements:
             # Rendered by code so no writer can omit it; VERIFY still judges it.

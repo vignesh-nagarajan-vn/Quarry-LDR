@@ -109,9 +109,13 @@ topic
   |                GAP also runs on the final pass: its uncovered
   |                sub-questions become "What we could not establish"
   v
-[CONFLICTS]   Local 4B, every engine mode. Proposes figure
-              disagreements; code accepts only real ones from
-              different sites.
+[CONFLICTS]   Local 4B, every engine mode, over all evidence except
+              low-tier pages. Code pairs figures stated for one
+              measure across sub-questions and the 4B confirms them;
+              the 4B also proposes per sub-question. Code accepts only
+              real differences between different sites, and never a
+              goal against a measured figure. Sides outside the
+              writers' corpus are numbered after it.
   |
   v
 [SYNTHESIZE]  local/assisted: Qwen3 8B writes each planned section

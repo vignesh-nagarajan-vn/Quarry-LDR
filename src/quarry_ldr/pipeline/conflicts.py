@@ -9,7 +9,9 @@ without saying so.
 
 from __future__ import annotations
 
+import math
 import re
+from collections.abc import Iterator
 
 from pydantic import BaseModel, Field
 
@@ -36,6 +38,62 @@ _QUALIFIERS = re.compile(
     r"at most|more than|less than|as much as|as low as|as high as|an?|the|of)\b"
 )
 _YEAR_RANGE = (1900.0, 2100.0)
+_UPPER_BOUND = re.compile(r"\b(less than|under|below|at most|up to|as much as|as high as)\b")
+_LOWER_BOUND = re.compile(r"\b(more than|over|above|at least|as low as)\b")
+# A goal or a figure for something unbuilt does not contradict a measured one.
+_NOT_MEASURED = re.compile(
+    r"\b(targets?|targeted|targeting|aims?|aiming|goals?|projected|projections?|planned|"
+    r"being developed|under development|in development|expected|forecasts?|theoretical|"
+    r"potential)\b"
+)
+_MAX_PAIR_CHECKS = 12
+_MAX_PAIRS_PER_MEASURE = 2
+_NUMBER = r"\$?\d[\d,]*(?:\.\d+)?"
+_PERCENT = r"(?:%|percent\b)"
+_RANGE_TO = r"\s*(?:-|\u2013|to)\s*"
+# "round-trip efficiency of approximately 40%" gives the measure and the value.
+_STATED_FIGURE = re.compile(
+    r"((?:[a-z][a-z-]+\s+)?[a-z][a-z-]+)\s+(?:of|is|was|at|reached|reaches)\s+"
+    r"((?:(?:about|approximately|around|roughly|nearly|over|under|above|below|up to|at least|"
+    r"at most|more than|less than)\s+)?"
+    rf"(?:{_NUMBER}\s?{_PERCENT}{_RANGE_TO}{_NUMBER}\s?{_PERCENT}"
+    rf"|{_NUMBER}(?:{_RANGE_TO}{_NUMBER})?\s?(?:{_PERCENT}|[a-z]+/[a-z]+\b|[a-z]+\b)?))"
+)
+_NOT_A_MEASURE = frozenset(
+    [
+        "a",
+        "an",
+        "the",
+        "of",
+        "its",
+        "their",
+        "this",
+        "that",
+        "these",
+        "those",
+        "has",
+        "have",
+        "had",
+        "with",
+        "and",
+        "or",
+        "to",
+        "in",
+        "on",
+        "for",
+        "by",
+        "from",
+        "than",
+        "average",
+        "mean",
+        "total",
+        "compared",
+        "around",
+        "about",
+        "over",
+        "under",
+    ]
+)
 
 
 class ConflictSide(BaseModel):
@@ -63,6 +121,10 @@ class _ProposedConflicts(BaseModel):
     conflicts: list[_Proposed] = Field(default_factory=list)
 
 
+class _SamePair(BaseModel):
+    same: bool
+
+
 CONFLICT_PROMPT = """You compare factual claims from different sources about one research question.
 
 Question: {question}
@@ -77,6 +139,18 @@ different years, places, products, or scenarios.
 Reply with JSON only: {{"conflicts": [{{"measure": "short name of what is measured", "claim_a": 1,
 "value_a": "the value with its unit, copied exactly from claim 1", "claim_b": 2, "value_b": "the
 value with its unit, copied exactly from claim 2"}}]}}. Reply {{"conflicts": []}} if there are none.
+"""
+
+SAME_PAIR_PROMPT = """Two sources state a figure for "{measure}".
+
+Source 1: {claim_a}
+Source 2: {claim_b}
+
+Do both figures describe the same kind of thing, measured the same way? Figures quoted for
+comparison with something else do not count. Answer false only if the two figures clearly describe
+different products, chemistries, years, places, or scenarios.
+
+Reply with JSON only: {{"same": true}} or {{"same": false}}.
 """
 
 
@@ -94,7 +168,14 @@ def comparable_claims(evidence: list[TriagedChunk]) -> list[TriagedChunk]:
 
 def _interval(value: str) -> tuple[float, float]:
     numbers = [float(figure) for figure in extract_figures(value)]
-    return min(numbers), max(numbers)
+    low, high = min(numbers), max(numbers)
+    if low == high:
+        # "less than 50 percent" does not disagree with 40 percent.
+        if _UPPER_BOUND.search(value.lower()):
+            return -math.inf, high
+        if _LOWER_BOUND.search(value.lower()):
+            return low, math.inf
+    return low, high
 
 
 def _unit(value: str) -> str:
@@ -110,12 +191,85 @@ def _values_differ(value_a: str, value_b: str) -> bool:
     if low_a <= high_b and low_b <= high_a:
         return False  # overlapping ranges agree
     gap = max(low_a, low_b) - min(high_a, high_b)
-    return gap / max(abs(high_a), abs(high_b), 1e-9) > _RELATIVE_TOLERANCE
+    finite = [abs(bound) for bound in (low_a, high_a, low_b, high_b) if math.isfinite(bound)]
+    return gap / max(*finite, 1e-9) > _RELATIVE_TOLERANCE
 
 
 def _looks_like_years(value: str) -> bool:
     low, high = _interval(value)
     return not _unit(value) and _YEAR_RANGE[0] <= low and high <= _YEAR_RANGE[1]
+
+
+def _is_measured(item: TriagedChunk) -> bool:
+    return _NOT_MEASURED.search(item.verdict.claim.lower()) is None
+
+
+def _stated_figures(claim: str) -> Iterator[tuple[str, str]]:
+    """(measure, value) for each figure a claim states as "<measure> of <value>"."""
+    for match in _STATED_FIGURE.finditer(claim.lower()):
+        words = [word for word in match.group(1).split() if word not in _NOT_A_MEASURE]
+        if words and extract_figures(match.group(2)):
+            yield " ".join(words), match.group(2).strip()
+
+
+def _coded_pairs(
+    evidence: list[TriagedChunk],
+) -> Iterator[tuple[str, _Proposed, list[TriagedChunk]]]:
+    """Pairs code finds on its own: one measure, one unit, different sites, different
+    numbers. Anywhere in the evidence, because the same measure often reaches
+    different sub-questions and a model reading one list at a time misses it."""
+    claims: dict[str, TriagedChunk] = {}
+    for item in evidence:
+        claims.setdefault(item.chunk.chunk_id, item)
+    stated = [
+        (measure, value, item)
+        for item in claims.values()
+        for measure, value in _stated_figures(item.verdict.claim)
+    ]
+    for position, (measure, value_a, item_a) in enumerate(stated):
+        for other, value_b, item_b in stated[position + 1 :]:
+            if other != measure:
+                continue
+            if _unit(value_a) != _unit(value_b) or not _values_differ(value_a, value_b):
+                continue
+            proposal = _Proposed(
+                measure=measure, claim_a=1, value_a=value_a, claim_b=2, value_b=value_b
+            )
+            if _accept(proposal, [item_a, item_b], item_a.sub_question_id) is None:
+                continue
+            yield measure, proposal, [item_a, item_b]
+
+
+async def _confirmed_pairs(
+    evidence: list[TriagedChunk], llm: LocalLLM, cfg: QuarryConfig
+) -> list[Conflict]:
+    """Code proposes, the model confirms the two figures are comparable."""
+    found: list[Conflict] = []
+    per_measure: dict[str, int] = {}
+    checks = 0
+    for measure, proposal, pair in _coded_pairs(evidence):
+        if checks >= _MAX_PAIR_CHECKS:
+            break
+        if per_measure.get(measure, 0) >= _MAX_PAIRS_PER_MEASURE:
+            continue
+        checks += 1
+        prompt = SAME_PAIR_PROMPT.format(
+            measure=measure,
+            claim_a=pair[0].verdict.claim[:_MAX_CLAIM_CHARS],
+            claim_b=pair[1].verdict.claim[:_MAX_CLAIM_CHARS],
+        )
+        try:
+            answer = await llm.complete_typed(
+                prompt, _SamePair, max_tokens=_MAX_TOKENS, max_retries=cfg.triage.max_retries
+            )
+        except ValueError:
+            logger.warning("conflicts_pair_malformed", measure=measure)
+            continue
+        conflict = _accept(proposal, pair, pair[0].sub_question_id)
+        if answer.same and conflict is not None:
+            per_measure[measure] = per_measure.get(measure, 0) + 1
+            found.append(conflict)
+    return found
 
 
 def _accept(
@@ -136,6 +290,8 @@ def _accept(
     if _looks_like_years(value_a) or _looks_like_years(value_b):
         return None
     if not _values_differ(value_a, value_b):
+        return None
+    if _is_measured(item_a) != _is_measured(item_b):
         return None
     measure = strip_markers(proposal.measure).replace("*", "").strip()[:_MAX_MEASURE_CHARS]
     if not measure:
@@ -173,22 +329,32 @@ async def _conflicts_for(
 async def find_conflicts(
     plan: ResearchPlan, evidence: list[TriagedChunk], llm: LocalLLM, cfg: QuarryConfig
 ) -> list[Conflict]:
-    """Conflicts within each sub-question, deduplicated and capped for the report."""
+    """Conflicts across the evidence and within each sub-question, one per pair of
+    chunks, capped for the report."""
     by_sq: dict[str, list[TriagedChunk]] = {}
     for item in evidence:
         by_sq.setdefault(item.sub_question_id, []).append(item)
-    found: dict[frozenset[tuple[str, str]], Conflict] = {}
+    found: dict[frozenset[str], Conflict] = {}
+    candidates = await _confirmed_pairs(evidence, llm, cfg)
     for sub_question in plan.sub_questions:
-        for conflict in await _conflicts_for(
-            sub_question, by_sq.get(sub_question.id, []), llm, cfg
-        ):
-            key = frozenset(
-                {(conflict.a.chunk_id, conflict.a.value), (conflict.b.chunk_id, conflict.b.value)}
-            )
-            found.setdefault(key, conflict)
+        candidates += await _conflicts_for(sub_question, by_sq.get(sub_question.id, []), llm, cfg)
+    for conflict in candidates:
+        found.setdefault(frozenset({conflict.a.chunk_id, conflict.b.chunk_id}), conflict)
     conflicts = list(found.values())[:_MAX_CONFLICTS]
     logger.info("conflicts_found", n=len(conflicts))
     return conflicts
+
+
+def cite_conflict_sides(
+    conflicts: list[Conflict], evidence: list[TriagedChunk], citations: CitationIndex
+) -> None:
+    """Number sides the writers' corpus left out, after every number it used, so
+    the draft's markers and the premium corpus bytes do not move."""
+    chunks = {item.chunk.chunk_id: item.chunk for item in evidence}
+    for conflict in conflicts:
+        for side in (conflict.a, conflict.b):
+            if side.chunk_id in chunks:
+                citations.add(chunks[side.chunk_id])
 
 
 def _numbers(conflict: Conflict, citations: CitationIndex) -> tuple[int, int] | None:
