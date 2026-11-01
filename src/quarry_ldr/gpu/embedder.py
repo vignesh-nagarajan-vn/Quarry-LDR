@@ -22,6 +22,11 @@ EMBED_DIM_BY_MODEL: dict[str, int] = {
     "Qwen/Qwen3-Embedding-0.6B": 1024,
 }
 
+# bge-m3 accepts 8192 tokens and each batch pads to its longest text, so one
+# oversized text asked for 8 GiB on an 8 GB card. Chunks target 512 heuristic
+# tokens, so this bound only ever truncates pathological text.
+_MAX_SEQ_TOKENS = 1024
+
 
 class Embedder:
     """Embeds text batches under ``arbiter.acquire("embedder")``.
@@ -51,7 +56,9 @@ class Embedder:
         """Real loader: imported lazily so CPU tests never import torch/sentence_transformers."""
         from sentence_transformers import SentenceTransformer
 
-        return SentenceTransformer(self.model_id, device="cuda")
+        model = SentenceTransformer(self.model_id, device="cuda")
+        model.max_seq_length = _MAX_SEQ_TOKENS
+        return model
 
     def _unload_model(self, model: Any) -> None:
         """Dereference the model; the arbiter empties the CUDA cache afterward."""

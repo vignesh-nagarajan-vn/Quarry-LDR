@@ -10,6 +10,8 @@ deselected by default.
 from __future__ import annotations
 
 import hashlib
+import sys
+from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -86,6 +88,22 @@ def _make_embedder(
     embedder = Embedder(cfg, arbiter)
     fake, load_calls = _swap_in_fake(embedder, arbiter)
     return embedder, arbiter, fake, load_calls
+
+
+def test_real_loader_bounds_the_sequence_length(
+    cfg: QuarryConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class LongLimitModel:
+        max_seq_length = 8192
+
+        def __init__(self, model_id: str, device: str) -> None:
+            self.model_id = model_id
+
+    monkeypatch.setitem(
+        sys.modules, "sentence_transformers", SimpleNamespace(SentenceTransformer=LongLimitModel)
+    )
+    embedder = Embedder(cfg, VramArbiter(budget_mb=cfg.gpu.vram_budget_mb))
+    assert embedder._load_model().max_seq_length == 1024
 
 
 async def test_embed_texts_shape_dtype_and_normalization(cfg: QuarryConfig) -> None:

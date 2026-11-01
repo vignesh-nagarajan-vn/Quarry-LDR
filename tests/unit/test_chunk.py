@@ -232,6 +232,39 @@ def test_custom_token_counter_changes_packing() -> None:
     assert all(c.token_count == 10_000 for c in fixed_chunks)
 
 
+def test_text_with_no_sentence_boundary_is_cut_to_the_target() -> None:
+    # A patent concept table: 36,785 characters with no sentence ending once
+    # became one chunk and ran the embedder out of memory.
+    table = "\n".join(f"2300000{i} environmental effect Effects 0.000 title" for i in range(800))
+    doc = ExtractedDoc(
+        url="https://a.example",
+        title="Table",
+        blocks=[Block(heading_path=["Concepts"], text=table)],
+    )
+    settings = ChunkSettings(target_tokens=512, overlap_tokens=64, min_tokens=48)
+    chunks = chunk_document(doc, settings)
+    assert len(chunks) > 1
+    # Only a merged trailing fragment may pass the target, by under min_tokens.
+    assert all(c.token_count < settings.target_tokens + settings.min_tokens for c in chunks)
+    for chunk in chunks:
+        assert doc.text[chunk.start_char : chunk.end_char] == chunk.text
+    assert chunks[0].start_char == 0
+    assert chunks[-1].end_char == len(doc.text)
+    assert all(a.end_char >= b.start_char for a, b in pairwise(chunks))
+
+
+def test_text_with_no_whitespace_is_still_cut() -> None:
+    doc = ExtractedDoc(
+        url="https://a.example",
+        title="Blob",
+        blocks=[Block(heading_path=["Data"], text="x" * 5000)],
+    )
+    settings = ChunkSettings(target_tokens=100, overlap_tokens=0, min_tokens=1)
+    chunks = chunk_document(doc, settings)
+    assert all(c.token_count <= settings.target_tokens for c in chunks)
+    assert "".join(c.text for c in chunks) == doc.text
+
+
 def test_word_count_counter_is_honored_for_token_count_field() -> None:
     doc = ExtractedDoc(
         url="https://a.example",

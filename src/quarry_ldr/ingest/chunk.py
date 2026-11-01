@@ -25,11 +25,14 @@ class TokenCounter(Protocol):
         ...
 
 
+_CHARS_PER_TOKEN = 4
+
+
 class HeuristicTokenCounter:
     """Deterministic offline approximation: ~4 characters per token."""
 
     def count(self, text: str) -> int:
-        return max(1, len(text) // 4)
+        return max(1, len(text) // _CHARS_PER_TOKEN)
 
 
 class Chunk(BaseModel):
@@ -56,8 +59,27 @@ def make_chunk_id(url: str, position: int) -> str:
 _SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
 
 
-def _sentence_spans(text: str) -> list[tuple[int, int]]:
-    """Split ``text`` into contiguous, gap-free sentence spans.
+def _bounded_spans(text: str, start: int, end: int, max_chars: int) -> list[tuple[int, int]]:
+    """Cut one over-long span into pieces of at most ``max_chars``.
+
+    Tables and patent concept lists can run for pages with no sentence
+    boundary. Cuts fall after the last whitespace in the window, or at the
+    limit when there is none, and stay gap-free like whole sentences.
+    """
+    pieces: list[tuple[int, int]] = []
+    while end - start > max_chars:
+        limit = start + max_chars
+        window = text[start:limit]
+        spaces = [match.end() for match in re.finditer(r"\s", window)]
+        cut = start + spaces[-1] if spaces else limit
+        pieces.append((start, cut))
+        start = cut
+    pieces.append((start, end))
+    return pieces
+
+
+def _sentence_spans(text: str, max_chars: int) -> list[tuple[int, int]]:
+    """Split ``text`` into contiguous, gap-free spans of at most ``max_chars``.
 
     Each span's trailing whitespace is absorbed into the sentence that
     precedes it, so concatenating ``text[start:end]`` for every span in
@@ -68,9 +90,9 @@ def _sentence_spans(text: str) -> list[tuple[int, int]]:
     start = 0
     for match in _SENTENCE_BOUNDARY.finditer(text):
         end = match.end()
-        spans.append((start, end))
+        spans.extend(_bounded_spans(text, start, end, max_chars))
         start = end
-    spans.append((start, len(text)))
+    spans.extend(_bounded_spans(text, start, len(text), max_chars))
     return spans
 
 
@@ -198,7 +220,8 @@ def chunk_document(
     """Split a document into overlapping token-aware chunks.
 
     Guarantees:
-      * no chunk exceeds ``target_tokens`` by more than one sentence;
+      * no chunk exceeds ``target_tokens`` by more than one sentence, and no
+        sentence is kept whole beyond ``target_tokens`` worth of characters;
       * consecutive chunks overlap by ~``overlap_tokens``;
       * trailing fragments under ``min_tokens`` merge backward;
       * ``start_char``/``end_char`` index into ``doc.text``;
@@ -220,7 +243,7 @@ def chunk_document(
         group_text = full_text[group_start_char:group_end_char]
         if not group_text.strip():
             continue
-        spans = _sentence_spans(group_text)
+        spans = _sentence_spans(group_text, settings.target_tokens * _CHARS_PER_TOKEN)
         for first_idx, last_idx in _pack_group(spans, group_text, active_counter, settings):
             start_char = group_start_char + spans[first_idx][0]
             end_char = group_start_char + spans[last_idx][1]
