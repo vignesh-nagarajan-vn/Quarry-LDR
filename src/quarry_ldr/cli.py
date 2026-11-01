@@ -205,6 +205,62 @@ def runs(config: ConfigOpt = None) -> None:
     asyncio.run(_list())
 
 
+def _report_path(target: str, cfg: QuarryConfig) -> Path:
+    """A report given as a file path or a run id."""
+    path = Path(target)
+    if path.is_file():
+        return path
+    candidate = cfg.run.data_dir / "reports" / f"report-{target}.md"
+    if candidate.is_file():
+        return candidate
+    err_console.print(f"[red]no report found for[/red] {target}")
+    raise typer.Exit(code=2)
+
+
+@app.command()
+def score(
+    target: Annotated[str, typer.Argument(help="Run id or report markdown path.")],
+    against: Annotated[
+        str | None, typer.Option(help="Earlier run id or path, shown as a before column.")
+    ] = None,
+    config: ConfigOpt = None,
+) -> None:
+    """Score a finished report against evals/thresholds.json; exit 1 on a miss."""
+    from rich.table import Table
+
+    from quarry_ldr.report.scorecard import evaluate, load_thresholds, score_report
+
+    cfg = _load(config)
+    overrides = cfg.source.overrides
+    card = score_report(_report_path(target, cfg).read_text(encoding="utf-8"), overrides)
+    results = {r.metric: r for r in evaluate(card, load_thresholds())}
+    before = (
+        score_report(_report_path(against, cfg).read_text(encoding="utf-8"), overrides).model_dump()
+        if against
+        else None
+    )
+
+    table = Table(title=f"Scorecard: {target}")
+    table.add_column("Metric")
+    if before is not None:
+        table.add_column("Before", justify="right")
+    table.add_column("Now", justify="right")
+    table.add_column("Target")
+    table.add_column("")
+    for metric, value in card.model_dump().items():
+        result = results.get(metric)
+        mark = "" if result is None else "pass" if result.passed else "MISS"
+        if result is not None and not result.passed and result.warn_only:
+            mark = "warn"
+        cells = [metric, str(value), result.limit if result else "", mark]
+        if before is not None:
+            cells.insert(1, str(before[metric]))
+        table.add_row(*cells)
+    console.print(table)
+    if any(not r.passed and not r.warn_only for r in results.values()):
+        raise typer.Exit(code=1)
+
+
 @app.command()
 def verify(config: ConfigOpt = None) -> None:
     """Preflight: report which runtime pieces are present and how to fix gaps."""

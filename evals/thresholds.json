@@ -1,0 +1,17 @@
+{
+  "words": { "min": 3000, "max": 6000 },
+  "distinct_sites": { "min": 10 },
+  "top_site_share": { "max": 0.25 },
+  "top3_site_share": { "max": 0.5 },
+  "strong_source_share": { "min": 0.25 },
+  "low_source_share": { "max": 0.1 },
+  "uncited_factual_share": { "max": 0.03 },
+  "malformed_markers": { "max": 0 },
+  "cut_off_titles": { "max": 0 },
+  "question_titles": { "max": 0 },
+  "question_sentences": { "max": 0 },
+  "longest_paragraph_sentences": { "max": 8 },
+  "repeated_sentences": { "max": 0 },
+  "missing_required_sections": { "max": 0 },
+  "specifics_per_1k_words": { "min": 30, "warn_only": true }
+}
