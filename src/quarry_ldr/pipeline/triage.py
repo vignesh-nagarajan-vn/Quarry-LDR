@@ -46,6 +46,10 @@ Passage:
 
 Reply with JSON only, exactly this shape:
 {{"relevant": true/false, "claim": "one-sentence factual claim the passage supports, empty if irrelevant", "evidence_span": "shortest verbatim quote supporting the claim, empty if irrelevant", "confidence": 0.0-1.0}}
+
+The claim must keep every specific the passage gives for it: names of companies, people, products,
+projects, and places, plus dates and figures with units. "Halvard Grid will commission a 1.5 MW
+pilot in Tromso in 2027" keeps them; "a company will build a pilot" loses them.
 """
 
 

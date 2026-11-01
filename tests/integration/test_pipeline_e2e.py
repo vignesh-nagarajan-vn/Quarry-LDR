@@ -116,7 +116,7 @@ class FakeLocalLLM:
         relevant = "sand" in prompt.lower() or "vesterholm" in prompt.lower()
         return TriageVerdict(
             relevant=relevant,
-            claim="A fixture claim about the pilot." if relevant else "",
+            claim="Polar Night Energy built the Vesterholm pilot at 12 MW." if relevant else "",
             evidence_span="fixture span" if relevant else "",
             confidence=0.8 if relevant else 0.1,
         )
@@ -638,3 +638,35 @@ async def test_later_passes_never_rejudge_a_chunk_and_search_science(cfg: Quarry
     assert result.iterations == 2
     assert len(searx.science_queries[0]) == 8  # one per sub-question on the first pass
     assert searx.science_queries[1] == ["more"]  # every follow-up on later passes
+
+
+async def test_vague_evidence_keeps_searching_despite_saturation(cfg: QuarryConfig) -> None:
+    class VagueLLM(FakeLocalLLM):
+        async def complete_typed(
+            self, prompt: str, schema: Any, max_tokens: int = 512, max_retries: int = 2
+        ) -> Any:
+            verdict = await super().complete_typed(prompt, schema, max_tokens, max_retries)
+            if schema is TriageVerdict and verdict.relevant:
+                return verdict.model_copy(update={"claim": "it is generally quite good"})
+            return verdict
+
+    cfg.run.max_iterations = 2
+    cfg.fetch.per_domain_rps = 500.0
+    cfg.engine.mode = "premium"
+    provider = FakeProvider()  # the model declares saturation on every call
+    searx = FakeSearx()
+    orchestrator = Orchestrator(
+        cfg,
+        searx=cast(SearxClient, searx),
+        fetcher=Fetcher(cfg.fetch),
+        embedder=cast(Embedder, FakeEmbedder()),
+        reranker=cast(Reranker, FakeReranker()),
+        local_llm=cast(LocalLLM, VagueLLM()),
+        provider=provider,
+    )
+    with respx.mock:
+        _mock_corpus_routes()
+        result = await orchestrator.research("the vesterholm sand battery pilot")
+
+    assert result.iterations == 2  # code overrode the saturated verdict, within the bound
+    assert searx.calls == 2

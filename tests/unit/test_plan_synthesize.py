@@ -16,6 +16,7 @@ from quarry_ldr.ingest.chunk import Chunk, HeuristicTokenCounter, make_chunk_id
 from quarry_ldr.ledger import Ledger, TokenUsage
 from quarry_ldr.pipeline.plan import ResearchPlan, SubQuestion, make_plan
 from quarry_ldr.pipeline.synthesize import (
+    SECTION_PROMPT,
     _corpus_entry,
     build_evidence_corpus,
     plan_sections,
@@ -85,6 +86,31 @@ async def test_make_plan_parses_fixture(cfg: QuarryConfig, fixtures_dir: Path) -
     assert len(plan.sub_questions) == 9
     assert plan.sub_questions[0].id == "sq01"
     assert len(plan.all_queries()) == 18
+
+
+def test_old_plans_without_must_pin_down_still_load() -> None:
+    raw = make_plan_obj().model_dump(mode="json")
+    for sub_question in raw["sub_questions"]:
+        del sub_question["must_pin_down"]
+    assert ResearchPlan.model_validate(raw).sub_questions[0].must_pin_down == ""
+
+
+def test_selection_prefers_concrete_claims_on_a_near_tie() -> None:
+    def item(position: int, claim: str) -> TriagedChunk:
+        base = make_evidence(1)[0]
+        return base.model_copy(
+            update={
+                "chunk": make_chunk("x", position=position),
+                "verdict": base.verdict.model_copy(update={"claim": claim}),
+                "rerank_score": 5.0,
+            }
+        )
+
+    vague = item(1, "it is quite good")
+    concrete = item(2, "Form Energy built a 1.5 MW pilot in Minnesota")
+    budget = HeuristicTokenCounter().count(_corpus_entry(concrete, 0))
+    kept = select_evidence([vague, concrete], budget, source=SourceSettings(max_site_share=1.0))
+    assert [k.verdict.claim for k in kept] == [concrete.verdict.claim]
 
 
 def test_plan_sections_shape_and_bounds(cfg: QuarryConfig) -> None:
@@ -271,3 +297,22 @@ def test_select_evidence_with_source_is_deterministic_and_prefers_strong_tiers()
 
     assert all("energy.gov" in item.chunk.url for item in kept)
     assert kept == select_evidence(list(reversed(weak + strong)), entry_cost * 3, source=source)
+
+
+def test_a_name_from_chunk_text_reaches_the_corpus_through_its_claim() -> None:
+    base = make_evidence(1)[0]
+    named = base.model_copy(
+        update={
+            "chunk": make_chunk("Polar Night Energy switched on the Vesterholm pilot in 2024."),
+            "verdict": base.verdict.model_copy(
+                update={"claim": "Polar Night Energy switched on the Vesterholm pilot in 2024."}
+            ),
+        }
+    )
+    corpus = build_evidence_corpus([named], CitationIndex())
+    assert "claim: Polar Night Energy switched on the Vesterholm pilot in 2024." in corpus
+
+
+def test_section_prompt_requires_named_specifics() -> None:
+    assert "Name the companies, projects, places" in SECTION_PROMPT
+    assert "dates and figures" in SECTION_PROMPT

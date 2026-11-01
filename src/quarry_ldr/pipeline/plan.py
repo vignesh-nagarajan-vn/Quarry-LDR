@@ -21,6 +21,9 @@ class SubQuestion(BaseModel):
     question: str
     queries: list[str] = Field(min_length=2, max_length=4)
     success_criterion: str
+    # What concrete facts answer this: "named companies and plant capacities".
+    # Plans saved before this field existed load with it empty.
+    must_pin_down: str = ""
 
 
 class ResearchPlan(BaseModel):
@@ -51,8 +54,10 @@ PLAN_SYSTEM = (
     "sub-questions that together cover it. Each sub-question gets 2 to 4 seed "
     "web search queries (short, keyword-style, varied phrasing) and one "
     "success criterion describing what cited evidence would satisfy it. "
+    "Each also gets must_pin_down: the concrete facts a good answer names, such as "
+    "specific companies, projects, places, dates, or measured values. "
     'Reply with JSON only: {"sub_questions": [{"id": "sq01", "question": "...", '
-    '"queries": ["...", "..."], "success_criterion": "..."}]}. '
+    '"queries": ["...", "..."], "success_criterion": "...", "must_pin_down": "..."}]}. '
     "Ids are sq01, sq02, ... in order."
 )
 

@@ -140,3 +140,16 @@ async def test_long_passage_truncated_in_prompt() -> None:
     scored = [ScoredChunk(chunk=make_chunk(long_text, 0), score=1.0)]
     await triage_chunks(make_sq(), scored, cast(LocalLLM, fake), TriageSettings())
     assert len(fake.prompts[0]) < 8_000
+
+
+async def test_prompt_demands_the_passage_specifics() -> None:
+    fake = FakeLLM(
+        {"Polar Night": TriageVerdict(relevant=True, claim="c", evidence_span="e", confidence=0.9)}
+    )
+    passage = "Polar Night Energy switched on the Vesterholm pilot in 2024."
+    scored = [ScoredChunk(chunk=make_chunk(passage, 0), score=1.0)]
+    await triage_chunks(make_sq(), scored, cast(LocalLLM, fake), TriageSettings())
+    prompt = fake.prompts[0]
+    assert passage in prompt
+    assert "names of companies" in prompt
+    assert "dates and figures" in prompt

@@ -74,6 +74,11 @@ _COMMON_OPENERS = frozenset(
         "With",
     }
 )
+# Capitalized units are figures' companions, not names ("1.5 MW" names nobody).
+_UNITS = frozenset(
+    {"Ah", "C", "EUR", "GBP", "GJ", "GW", "GWh", "J", "K", "MJ", "MPa", "MW", "MWh", "Pa"}
+    | {"TW", "TWh", "USD", "V", "W", "Wh"}
+)
 
 
 def strip_markers(text: str) -> str:
@@ -147,6 +152,7 @@ def named_entities(text: str) -> set[str]:
         words = match.group(0).split()
         while words and words[0] in _COMMON_OPENERS:
             words.pop(0)
+        words = [word for word in words if word not in _UNITS]
         name = " ".join(words)
         if len(name) >= 2:
             names.add(name)
