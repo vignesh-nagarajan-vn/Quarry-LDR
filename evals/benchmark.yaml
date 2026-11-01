@@ -1,0 +1,15 @@
+# The fixed live benchmark for report quality. Run spaced out and read the
+# reports as well as the scorecards: `quarry score <run_id> --against <old_id>`.
+topics:
+  - topic: "Iron-air batteries for grid-scale energy storage: chemistry, economics, and deployment status"
+    engine: local
+    max_cost: 0.0
+  - topic: "GLP-1 weight-loss drugs: long-term safety, effectiveness, and real-world outcomes"
+    engine: local
+    max_cost: 0.0
+  - topic: "Sodium-ion batteries for stationary storage: chemistry, costs, and commercial status"
+    engine: assisted
+    max_cost: 0.5
+  - topic: "Enhanced geothermal systems: technology status, project economics, and the path to gigawatt scale"
+    engine: premium
+    max_cost: 4.5

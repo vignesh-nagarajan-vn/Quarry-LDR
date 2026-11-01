@@ -138,6 +138,12 @@ class ApiSettings(BaseModel):
     batch_poll_s: float = 30.0
 
 
+class SourceSettings(BaseModel):
+    # Domain to tier (primary, scholarly, established, general, low); beats
+    # every built-in rating rule in ingest/sources.py.
+    overrides: dict[str, str] = Field(default_factory=dict)
+
+
 class ReportSettings(BaseModel):
     min_sections: int = 4
     max_sections: int = 12
@@ -169,6 +175,7 @@ class QuarryConfig(BaseSettings):
     synth: SynthSettings = Field(default_factory=SynthSettings)
     verify: VerifySettings = Field(default_factory=VerifySettings)
     api: ApiSettings = Field(default_factory=ApiSettings)
+    source: SourceSettings = Field(default_factory=SourceSettings)
     report: ReportSettings = Field(default_factory=ReportSettings)
 
     # Sourced from the conventional env var, never from yaml. repr=False and
