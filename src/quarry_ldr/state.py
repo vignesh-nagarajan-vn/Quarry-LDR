@@ -75,6 +75,7 @@ class Stage(enum.StrEnum):
     RERANK = "rerank"
     TRIAGE = "triage"
     GAP = "gap"
+    CONFLICTS = "conflicts"
     SYNTHESIZE = "synthesize"
     VERIFY = "verify"
     RENDER = "render"

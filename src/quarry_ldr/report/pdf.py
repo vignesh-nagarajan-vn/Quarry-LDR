@@ -128,6 +128,7 @@ def _build_source(
         ("Chunks", str(manifest.n_chunks)),
         ("After dedup", str(manifest.n_chunks_after_dedup)),
         ("Evidence chunks", str(manifest.n_chunks_evidence)),
+        ("Source disagreements", str(manifest.n_conflicts)),
         ("Claims checked", str(manifest.n_claims_checked)),
         (
             "Claims rewritten / dropped",
