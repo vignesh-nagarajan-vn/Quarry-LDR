@@ -181,6 +181,8 @@ def _interval(value: str) -> tuple[float, float]:
 def _unit(value: str) -> str:
     text = value.lower().replace("percent", "%")
     text = re.sub(r"\d[\d,]*(?:\.\d+)?", " ", text)
+    # "50% to 60%" and "10 to 20 Wh/kg" have the unit of "55%" and "15 Wh/kg".
+    text = re.sub(r"(\S*)\s+to\s+\1(?=\s|$)", r"\1", text)
     text = _QUALIFIERS.sub(" ", text)
     return re.sub(r"[\s\-\u2013~\u2248.,]+", "", text)
 
@@ -193,6 +195,29 @@ def _values_differ(value_a: str, value_b: str) -> bool:
     gap = max(low_a, low_b) - min(high_a, high_b)
     finite = [abs(bound) for bound in (low_a, high_a, low_b, high_b) if math.isfinite(bound)]
     return gap / max(*finite, 1e-9) > _RELATIVE_TOLERANCE
+
+
+def _figure_spans(claim: str, value: str) -> list[tuple[float, float]]:
+    """Every figure a claim states in the value's unit, ranges read whole."""
+    unit = _unit(value).removeprefix("$")
+    if not unit:
+        return []
+    written = _PERCENT if unit.startswith("%") else rf"{re.escape(unit)}(?![a-z])"
+    pattern = (
+        rf"{_NUMBER}\s?(?:{written})?{_RANGE_TO}{_NUMBER}\s?(?:{written})|{_NUMBER}\s?(?:{written})"
+    )
+    return [_interval(match.group(0)) for match in re.finditer(pattern, claim.lower())]
+
+
+def _claims_share_a_figure(value: str, claim_a: str, claim_b: str) -> bool:
+    """ "Average 10% to 15%, over 20% at best" against "12% at peak" is one finding
+    described at two points, whichever figures were picked to compare."""
+    spans_b = _figure_spans(claim_b, value)
+    return any(
+        low_a <= high_b and low_b <= high_a
+        for low_a, high_a in _figure_spans(claim_a, value)
+        for low_b, high_b in spans_b
+    )
 
 
 def _looks_like_years(value: str) -> bool:
@@ -290,6 +315,8 @@ def _accept(
     if _looks_like_years(value_a) or _looks_like_years(value_b):
         return None
     if not _values_differ(value_a, value_b):
+        return None
+    if _claims_share_a_figure(value_a, item_a.verdict.claim, item_b.verdict.claim):
         return None
     if _is_measured(item_a) != _is_measured(item_b):
         return None

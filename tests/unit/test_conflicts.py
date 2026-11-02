@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import pytest
+
 from quarry_ldr.config import QuarryConfig
 from quarry_ldr.gpu.local_llm import LocalLLM
 from quarry_ldr.ingest.chunk import Chunk
 from quarry_ldr.pipeline.conflicts import (
     Conflict,
     ConflictSide,
+    _unit,
     cite_conflict_sides,
     comparable_claims,
     conflict_notes,
@@ -233,6 +236,37 @@ async def test_a_bound_does_not_disagree_with_a_value_inside_it(cfg: QuarryConfi
         [_proposal(value_a="approximately 40%", value_b="less than 50 percent")], same=True
     )
     assert await find_conflicts(_plan(), evidence, cast(LocalLLM, llm), cfg) == []
+
+
+async def test_claims_sharing_a_figure_do_not_disagree(cfg: QuarryConfig) -> None:
+    evidence = [
+        _evidence(
+            1,
+            "a.example",
+            "Drugs can lead to weight loss of over 20% in some studies, with participants "
+            "losing an average of 10% to 15% over a year.",
+        ),
+        _evidence(2, "b.example", "Patients reached a peak weight loss of 12% at 18 months."),
+    ]
+    llm = FakeLLM([_proposal(value_a="over 20%", value_b="12%")], same=True)
+    assert await find_conflicts(_plan(), evidence, cast(LocalLLM, llm), cfg) == []
+
+
+@pytest.mark.parametrize(
+    ("written", "plain"),
+    [("50% to 60%", "%"), ("10 to 20 Wh/kg", "wh/kg"), ("5 hours to 8 hours", "hours")],
+)
+def test_a_range_written_out_keeps_its_unit(written: str, plain: str) -> None:
+    assert _unit(written) == plain
+
+
+async def test_other_figures_that_differ_keep_a_conflict(cfg: QuarryConfig) -> None:
+    evidence = [
+        _evidence(1, "a.example", "Efficiency of about 40%, against 90% for lithium-ion."),
+        _evidence(2, "b.example", "Efficiency of 50% to 60%, with 5% lost to self-discharge."),
+    ]
+    llm = FakeLLM([_proposal(value_a="about 40%", value_b="50% to 60%")], same=True)
+    assert len(await find_conflicts(_plan(), evidence, cast(LocalLLM, llm), cfg)) == 1
 
 
 async def test_a_goal_does_not_contradict_a_measured_figure(cfg: QuarryConfig) -> None:
