@@ -70,3 +70,13 @@ def test_references_markdown_lists_all() -> None:
     assert "[1]" in references and "https://a.example/1" in references
     assert "[2]" in references and "https://b.example/2" in references
     assert "chars 100-200" in references
+
+
+def test_references_can_be_limited_to_what_a_body_cites() -> None:
+    index = CitationIndex()
+    index.add(make_chunk("aaa", url="https://a.example/1"))
+    index.add(make_chunk("bbb", url="https://b.example/2"))
+    index.add(make_chunk("ccc", url="https://c.example/3"))
+    references = index.references_markdown("A claim [3] and another [1].")
+    assert "[1] " in references and "[3] " in references
+    assert "https://b.example/2" not in references

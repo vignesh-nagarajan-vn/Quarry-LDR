@@ -110,7 +110,8 @@ def _build_source(
 
     parts.append("== References")
     parts.append("")
-    for citation in citations.all():
+    body = "\n".join(section.markdown for section in draft.sections)
+    for citation in citations.cited_in(body):
         title = _inline(citation.title or citation.url)
         anchor = f"chunk {citation.chunk_id}, chars {citation.start_char}-{citation.end_char}"
         parts.append(

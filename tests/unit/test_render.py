@@ -73,6 +73,18 @@ def make_ledger() -> Ledger:
     return ledger
 
 
+def test_a_number_the_body_never_cites_is_not_a_reference() -> None:
+    citations = CitationIndex()
+    citations.add(make_chunk("aaa"))
+    citations.add(make_chunk("bbb", url="https://vesterholm-times.example/b"))
+    citations.add(make_chunk("ccc", url="https://vesterholm-times.example/unused"))
+
+    markdown = render_report(make_draft(), citations, make_ledger(), make_manifest())
+
+    assert "https://vesterholm-times.example/b" in markdown
+    assert "https://vesterholm-times.example/unused" not in markdown
+
+
 def test_full_render_contains_all_sections() -> None:
     citations = CitationIndex()
     citations.add(make_chunk("aaa"))

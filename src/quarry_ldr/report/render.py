@@ -114,7 +114,7 @@ def render_report(
     )
     parts = [
         body,
-        citations.references_markdown(),
+        citations.references_markdown(body),
         "",
         ledger.to_markdown(),
         "",

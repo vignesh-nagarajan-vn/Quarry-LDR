@@ -84,10 +84,17 @@ class CitationIndex:
         for number in self.numbers_in(markdown):
             self.get(number)
 
-    def references_markdown(self) -> str:
-        """The numbered references section for the end of the report."""
+    def cited_in(self, markdown: str) -> list[Citation]:
+        """The citations a text uses. The writers see more than they cite, and VERIFY
+        removes sentences, so a number can exist without being a source of the report."""
+        used = set(self.numbers_in(markdown))
+        return [citation for citation in self.all() if citation.number in used]
+
+    def references_markdown(self, body: str | None = None) -> str:
+        """The numbered references section for the end of the report, limited to the
+        citations `body` uses when given. Numbers stay as assigned."""
         lines = ["## References", ""]
-        for citation in self.all():
+        for citation in self.all() if body is None else self.cited_in(body):
             heading = " > ".join(citation.heading_path) if citation.heading_path else ""
             anchor = f"chunk {citation.chunk_id}, chars {citation.start_char}-{citation.end_char}"
             title = citation.title or citation.url
