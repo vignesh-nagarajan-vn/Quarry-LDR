@@ -100,6 +100,7 @@ What $0.00 buys, verbatim from [a real local-engine run](pdf-reports/):
 - [docs/Architecture.md](docs/Architecture.md): pipeline diagram, engine modes, VRAM arbiter, hardware design target, full configuration reference, API pricing the ledger uses.
 - [docs/first-test/](docs/first-test/): the v0 live validation record; [FirstRunReport.md](docs/first-test/FirstRunReport.md) breaks down measured costs and the bugs only production could find, and [ExampleReport.md](docs/first-test/ExampleReport.md) is the $2.88 premium report it produced, verbatim except punctuation.
 - [docs/Troubleshooting.md](docs/Troubleshooting.md): symptoms, causes, and exact fixes.
+- [docs/Backlog.md](docs/Backlog.md): open work, what is not yet measured, and the downloadable app plan.
 - [CLAUDE.md](CLAUDE.md): the full operating context; purpose, architecture map, invariants, commit contract, and working rules for humans and agents.
 - [DECISIONS.md](DECISIONS.md): every design decision and measured deviation.
 
