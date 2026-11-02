@@ -36,6 +36,7 @@ def test_split_handles_a_marker_after_the_period() -> None:
         "Costs fell in the U.S. Department of Energy study [1].",
         "Some chemistries, e.g. Iron-air, are cheaper [1].",
         "Smith et al. Reported a gain of 3 percent [1].",
+        "Leaders include Contemporary Amperex Technology Co. Limited (CATL) and Altris AB [1].",
     ],
 )
 def test_abbreviations_do_not_split(text: str) -> None:

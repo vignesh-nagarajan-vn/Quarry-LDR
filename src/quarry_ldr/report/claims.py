@@ -13,7 +13,7 @@ from quarry_ldr.report.citations import CITATION_MARKER
 
 _BOUNDARY = re.compile(r"[.!?](?:\s*\[\d+\])*\s+(?=[A-Z0-9(\[\"'“*])")
 _ABBREVIATION = re.compile(
-    r"(?:\b(?:e\.g|i\.e|vs|etc|al|Dr|Prof|Mr|Ms|Mrs|St|Fig|No|approx|cf|Inc|Ltd|Corp)|"
+    r"(?:\b(?:e\.g|i\.e|vs|etc|al|Dr|Prof|Mr|Ms|Mrs|St|Fig|No|approx|cf|Inc|Ltd|Corp|Co)|"
     r"\b(?:[A-Z]\.)+[A-Z]?)\.?$"
 )
 _FIGURE = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)?(?![\d])")
